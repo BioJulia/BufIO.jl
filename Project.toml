@@ -1,0 +1,18 @@
+name = "BufIO"
+uuid = "ff366017-094f-4144-bd70-a828a0d67152"
+version = "0.1.0"
+authors = ["Jakob Nybo Nissen <jakobnybonissen@gmail.com>"]
+
+[deps]
+MemoryViews = "a791c907-b98b-4e44-8f4d-e4c2362c6b2f"
+
+[compat]
+MemoryViews = "0.3.2"
+Test = "1.11"
+julia = "1.11"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
