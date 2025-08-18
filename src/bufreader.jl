@@ -66,10 +66,10 @@ end
         x.buffer = mem
     end
     # Now fill in the newly freed bytes
+    view = MemoryView(x.buffer)[(n_filled + 1):length(x.buffer)]
+    @assert !isempty(view)
     n_added = 0
     while n_added == 0
-        view = MemoryView(x.buffer)[(n_filled + 1):length(x.buffer)]
-        @assert !isempty(view)
         n_added = readbytes!(x.io, view)
     end
     x.start = 1

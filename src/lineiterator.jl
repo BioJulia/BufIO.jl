@@ -1,12 +1,13 @@
-struct LineIterator{T <: AbstractBufReader}
-    reader::AbstractBufReader
-    chomp::Bool
+mutable struct LineViewIterator{T <: AbstractBufReader}
+    const reader::AbstractBufReader
+    const chomp::Bool
+    closed::Bool
 end
 
 """
-    LineIterator(x::AbstractBufReader; chomp::Bool=true)
+    line_views(x::AbstractBufReader; chomp::Bool=true)
 
-Create an efficient iterator of lines of `x`.
+Create an efficient, stateful iterator of lines of `x`.
 
 Lines are defined as all data up to and including a trailing newline (\\n, byte `0x0a`).
 Any nonempty data after the last `\\n` is considered the last newline.
@@ -21,79 +22,55 @@ any trailing `\\r\\n` or `\\n` should be removed from the output.
 
 The returned views are views into `x`, and are invalidated when the line iterator is
 mutated.
+If `x` had a limited buffer size, and an entire line cannot be kept in the buffer, an
+`ArgumentError` is thrown.
 
-A `LineIterator` takes ownership of `x`, and so `x` should not be mutated after the construction
-of the `LineIterator`. Use `close(::LineIterator)` to close the underlying reader.
+A the resulting iterator takes ownership of `x`, and so `x` should not be mutated after the construction
+of the iterator. Use `close(it)` on the iterator to close the underlying reader.
 """
-function LineIterator(x::AbstractBufReader; chomp::Bool = true)
-    return LineIterator{typeof(x)}(x, chomp)
+function line_views(x::AbstractBufReader; chomp::Bool = true)
+    return LineViewIterator{typeof(x)}(x, chomp, false)
 end
 
-Base.IteratorEltype(::Type{<:LineIterator}) = ImmutableMemoryView{UInt8}
-Base.IteratorSize(::Type{<:LineIterator}) = Base.SizeUnknown()
+Base.eltype(::Type{<:LineViewIterator}) = ImmutableMemoryView{UInt8}
+Base.IteratorSize(::Type{<:LineViewIterator}) = Base.SizeUnknown()
 
-Base.close(x::LineIterator) = close(x.reader)
-
-function chomp(x::ImmutableMemoryView{UInt8})::ImmutableMemoryView{UInt8}
-    len = if isempty(x)
-        0
-    else
-        has_lf = x[end] == 0x0a
-        two_bytes = length(x) > 1
-        has_cr = has_lf & two_bytes & (x[length(x) - two_bytes] == 0x0d)
-        length(x) - (has_lf + has_cr)
-    end
-    return x[1:len]
+function Base.close(x::LineViewIterator)
+    x.closed && return nothing
+    close(x.reader)
+    x.closed = true
+    return nothing
 end
 
+function Base.iterate(x::LineViewIterator, state::Int = 0)
+    # Closed readers cannot be restarted - this prevents a reader that previously
+    # reached EOF from iterating an empty line.
+    x.closed && return nothing
 
-# TODO: If end at newline, do NOT emit next line!
-function Base.iterate(x::LineIterator, state::Int = -1)
     # Consume data from previous line
     state > 0 && consume(x.reader, state)
 
-    buffer = get_nonempty_buffer(x.reader)
-    # If the reader has no data:
-    if isnothing(buffer)
-        # If this is the first element, return an empty buffer
-        if state == -1
-            return (get_buffer(x), 0)
+    pos = buffer_until(x.reader, 0x0a)
+    if pos isa HitBufferLimit
+        throw(ArgumentError("Could not buffer a whole line!"))
+    elseif pos === nothing
+        # No more newlines until EOF. Close as we reached EOF
+        buffer = get_buffer(x.reader)
+        close(x)
+        # If no bytes, we emit it only if this is first iteration (state is zero)
+        # else we hit the last newline in the previous iteration
+        return if isempty(buffer)
+            iszero(state) ? (buffer, 0) : nothing
         else
-            # Else, return nothing
-            return nothing
+            # Else, we emit the rest of the buffer
+            (buffer, length(buffer))
         end
-    end
-
-    scan_from = 1
-    while true
-        # Find the next newline in the buffer
-        pos = findnext(==(0x0a), buffer, scan_from)
-        if pos === nothing
-            # If no newline...
-            n_filled = fill_buffer(x)
-            if n_filled === nothing
-                # ... if we can't add more bytes to the buffer, we can't emit a line
-                # so error!
-                throw(ArgumentError("Could not buffer a whole line!"))
-            elseif iszero(n_filled)
-                # Else, if no more bytes to read in, we've reached the end without finding a newline,
-                # emit the rest of the data
-                return (buffer, length(buffer))
-            else
-                # Else, if more bytes to get, get them.
-                # Do not search from the beginning again for newline
-                buffer = get_buffer(x)
-                scan_from += n_filled
-            end
-        else
-            # If found a newline, emit it, and chomp it if necessary
-            line_view = buffer[1:pos]
-            if x.chomp
-                line_view = chomp(line_view)
-            end
-            return (line_view, pos)
+    else
+        buffer = get_buffer(x.reader)
+        line_view = buffer[1:pos]
+        if x.chomp
+            line_view = _chomp(line_view)
         end
+        return (line_view, pos)
     end
-
-    return
 end

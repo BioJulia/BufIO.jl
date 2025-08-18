@@ -2,7 +2,8 @@ module BufIO
 
 using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
 
-export BufReader,
+export AbstractBufReader,
+    BufReader,
     LineIterator,
     IOError,
     IOErrorKinds,
@@ -10,11 +11,18 @@ export BufReader,
     fill_buffer,
     consume,
     read_into!,
-    read_all!
+    read_all!,
+    line_views
 
-public ConsumeBufferError
+public ConsumeBufferError, LineViewIterator
 
 module IOErrorKinds
+    """
+        IOErrorKind
+
+    Enum indicating what error was thrown. The current list is non-exhaustive, and
+    more may be added in future releases.
+    """
     @enum IOErrorKind::UInt8 begin
         ConsumeBufferError
     end
@@ -22,10 +30,30 @@ end
 
 using .IOErrorKinds: IOErrorKind, ConsumeBufferError
 
+"""
+    IOError
+
+This type is thrown by errors of AbstractBufReader.
+They contain the `.kind::IOErrorKind` public property.
+"""
 struct IOError
     kind::IOErrorKind
 end
 
+# Internal type!
+struct HitBufferLimit end
+
+function _chomp(x::ImmutableMemoryView{UInt8})::ImmutableMemoryView{UInt8}
+    len = if isempty(x)
+        0
+    else
+        has_lf = x[end] == 0x0a
+        two_bytes = length(x) > 1
+        has_cr = has_lf & two_bytes & (x[length(x) - two_bytes] == 0x0d)
+        length(x) - (has_lf + has_cr)
+    end
+    return x[1:len]
+end
 
 
 """
@@ -34,8 +62,8 @@ end
 A `BufReader` is an IO type that exposes a buffer to the user, thereby
 allowing efficient IO.
 
-!!! warn
-    By default, subtypes of `BufReader` are *not threadsafe*, so concurrent usage
+!!! warning
+    By default, subtypes of `BufReader` are **not threadsafe**, so concurrent usage
     should protect the io behind a lock.
 
 Subtypes `T` of this type should implement at least:
@@ -46,17 +74,32 @@ Subtypes `T` of this type should implement at least:
 * `Base.close(io::T)`
 
 # Extended help
-Subtypes of this type have implementations for many Base IO methods, but with more precisedly
+
+* Methods of `Base.close` should make sure that calling `close` on an already-closed
+  object has no visible effects. 
+
+Subtypes `T` of this type have implementations for many Base IO methods, but with more precisely
 specified semantics:
 
+* `bytesavailable(::T)`
+* `eof(::T)`
+* `read(::T)` and `read(::T, String)`
 * `unsafe_read(x::T, p::Ptr{UInt8}, n::UInt)` will read `n` bytes, or until `x` is EOF,
-  returning the number of bytes read. This caused UB only if `p` is not a valid pointer
-  with `n` bytes of space or more.
+  whichever is first, returning the number of bytes read. This causes UB only if `p` is no
+  a valid pointer with `n` bytes of space or more.
 * `readavailable(x::T)` will do exactly one underlying IO call if the buffer is empty,
-  and will only return an empty vector if `x` is EOF.
-* `read(x::T, UInt8)` will throw an `EOFError` if `x` is EOF.
+  zero calls if the buffer is nonempty, and will only return an empty vector if `x` is EOF.
+* `read(x::T, UInt8)` and `peek(x::T, UInt8)` will throw an `EOFError` if `x` is EOF.
+* `read!(x::T, A::AbstractArray)` requires that `eltype(A) === UInt8`, and that `A` implements
+  `sizeof` and can be `unsafe_convert`ed to `Ptr{UInt8}`.
 * `readbytes!(x::T, b, n)` requires that `b` is one-based indexed, and will read until `x` is
   EOF or `n` bytes has been read.
+* `copyuntil(out::IO, x::T, delim; keep)`, requires that `delim::UInt8`. If `delim` is not found,
+  the entire content of `x` it copied to `out`.
+* `readuntil(x::T, delim)` requires that `delim::UInt8`
+* `copyline`: Throws an `ArgumentError` if the buf reader has an ungrowable buffer size of 1 byte,
+  and an `\\r` is encountered, since there is no way to know if this is part of an `\\r\\n` newline.
+* `peek(x::T, ::Type{A})` requires that `A === UInt8`
 """
 abstract type AbstractBufReader end
 
@@ -77,7 +120,7 @@ the number of bytes added. After calling `fill_buffer` and getting `n`,
 the buffer obtained by `get_buffer` should have `n` new bytes appended.
 
 This function must fill at least one byte, except
-* If the underlying io is EOF, or there is no underlying io, return 0
+* If the underlying io is EOF, or there is no underlying io to fill bytes from, return 0
 * If the buffer is not empty, and cannot be expanded, return `nothing`.
 
 Buffered readers which do not wrap another underlying IO, and therefore can't fill
@@ -134,7 +177,7 @@ function read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 end
 
 """
-    read_all!(x::AbstractBufReader, dst::MutableMemoryView)::Int
+    read_all!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 
 Read bytes into `dst` until either `dst` is filled or `x` is EOF, returning
 the number of bytes read.
@@ -154,7 +197,7 @@ end
 
 #########################
 
-function copyto_start!(dst::MutableMemoryView{T}, src::MemoryView{T})::Int where {T}
+function copyto_start!(dst::MutableMemoryView{T}, src::ImmutableMemoryView{T})::Int where {T}
     mn = min(length(dst), length(src))
     copyto!(dst[begin:mn], src[begin:mn])
     return mn
