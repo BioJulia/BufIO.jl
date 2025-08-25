@@ -161,6 +161,7 @@ end
 function buffer_until(x::AbstractBufReader, byte::UInt8)::Union{Int, HitBufferLimit, Nothing}
     buffer = get_nonempty_buffer(x)
     isnothing(buffer) && return nothing
+    buffer_length = length(buffer)
     scan_from = 1
     while true
         pos = findnext(==(byte), buffer, scan_from)
@@ -172,7 +173,8 @@ function buffer_until(x::AbstractBufReader, byte::UInt8)::Union{Int, HitBufferLi
             return nothing
         else
             buffer = get_buffer(x)
-            scan_from += n_filled
+            scan_from = buffer_length + 1
+            buffer_length = length(buffer)
         end
     end
     return # unreachable
@@ -222,5 +224,4 @@ end
 #=
 readeach
 readlines
-eachline (buffered readers only)
 =#

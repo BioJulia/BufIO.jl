@@ -4,15 +4,17 @@ using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
 
 export AbstractBufReader,
     BufReader,
-    LineIterator,
+    BufWriter,
     IOError,
     IOErrorKinds,
     get_buffer,
+    get_nonempty_buffer,
     fill_buffer,
     consume,
     read_into!,
     read_all!,
-    line_views
+    line_views,
+    expand_buffer
 
 public ConsumeBufferError, LineViewIterator
 
@@ -64,7 +66,7 @@ allowing efficient IO.
 
 !!! warning
     By default, subtypes of `BufReader` are **not threadsafe**, so concurrent usage
-    should protect the io behind a lock.
+    should protect the instance behind a lock.
 
 Subtypes `T` of this type should implement at least:
 
@@ -85,7 +87,7 @@ specified semantics:
 * `eof(::T)`
 * `read(::T)` and `read(::T, String)`
 * `unsafe_read(x::T, p::Ptr{UInt8}, n::UInt)` will read `n` bytes, or until `x` is EOF,
-  whichever is first, returning the number of bytes read. This causes UB only if `p` is no
+  whichever is first, returning the number of bytes read. This causes UB only if `p` is not
   a valid pointer with `n` bytes of space or more.
 * `readavailable(x::T)` will do exactly one underlying IO call if the buffer is empty,
   zero calls if the buffer is nonempty, and will only return an empty vector if `x` is EOF.
@@ -100,6 +102,9 @@ specified semantics:
 * `copyline`: Throws an `ArgumentError` if the buf reader has an ungrowable buffer size of 1 byte,
   and an `\\r` is encountered, since there is no way to know if this is part of an `\\r\\n` newline.
 * `peek(x::T, ::Type{A})` requires that `A === UInt8`
+* `eachline(x::T)` does not support `last`, or `Iterators.reverse` and is fully stateful
+  (its iterator state is always `nothing`). It does not promise to free its underlying resource
+  when being garbage collected.
 """
 abstract type AbstractBufReader end
 
@@ -109,6 +114,16 @@ abstract type AbstractBufReader end
 Get the available bytes of `io`.
 
 Calling this function when the buffer is empty should not attempt to fill the buffer.
+
+    get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}
+    get_buffer(io::AbstractBufWriter, min_size::Int)::Union{MutableMemoryView{UInt8}, Nothing}
+
+Get the available mutable buffer of `io` that can be written to.
+
+Calling this function when the buffer is empty should not attempt to fill the buffer.
+When `min_size` is passed, make sure the buffer contains at least `min_size` bytes.
+This may be achieved by flushing and/or allocating a new buffer.
+If the type does not support such large buffer sizes, return `nothing`.
 """
 function get_buffer end
 
@@ -130,7 +145,7 @@ This function should never return `nothing` if the buffer is empty.
 function fill_buffer end
 
 """
-    consume(io::AbstractBufReader, n::Int)::Nothing
+    consume(io::Union{AbstractBufReader, AbstractBufWriter}, n::Int)::Nothing
 
 Remove the first `n` bytes of the buffer of `io`.
 Consumed bytes will not be returned by future calls to `get_buffer`.
@@ -197,6 +212,77 @@ end
 
 #########################
 
+"""
+    abstract type AbstractBufWriter <: Any end
+
+An `AbstractBufWriter` is an IO-like type which exposes mutable memory
+to the user, which can be written to directly.
+This can help avoiding intermediate allocations when writing.
+For example, integers can usually be written to buffered writers without allocating. 
+
+!!! warning
+    By default, subtypes of `BufReader` are **not threadsafe**, so concurrent usage
+    should protect the instance behind a lock.
+
+Subtypes of this type should have a buffer of at least 1 byte.
+That implies that, after calling `flush` on `x::T`, `length(get_buffer(x))`
+must return at least 1.
+
+Subtypes `T` of this type should implement at least:
+
+* `get_buffer(io::T)`
+* `Base.close(io::T)`
+* `Base.flush(io::T)`
+* `consume(io::T, n::Int)`
+
+Subtypes can optionally implement:
+
+* `expand_buffer(io::T, ::Int)`
+* `get_buffer(io::T, ::Int)`
+"""
+abstract type AbstractBufWriter end
+
+"""
+    expand_buffer(io::AbstractBufWriter, additional::Int)::Bool
+
+Make room for at least `additional` more bytes in `io`'s buffer.
+This function may obtain the space either by flushing the buffer,
+or allocating a new buffer, or both.
+
+Return whether the operation was successful.
+"""
+function expand_buffer end
+
+function get_buffer(x::AbstractBufWriter, min_size::Int)
+    buffer = get_buffer(x)
+    length(buffer) >= min_size && return buffer
+    return get_buffer_slowpath(x, length(buffer), min_size)
+end
+
+@noinline function get_buffer_slowpath(x::AbstractBufWriter, bufferlen::Int, min_size::Int)
+    expand_buffer(x, min_size - bufferlen) || return nothing
+    buffer = get_buffer(x)
+    @assert length(buffer) >= min_size
+    return buffer
+end
+
+function get_nonempty_buffer(x::AbstractBufWriter)
+    buffer = get_buffer(x)
+    isempty(buffer) && flush(x)
+    buffer = get_buffer(x)
+    @assert !isempty(buffer)
+    return buffer
+end
+
+function Base.write(io::AbstractBufWriter, x::UInt8)
+    buffer = get_nonempty_buffer(io)
+    buffer[1] = x
+    consume(io, 1)
+    return 1
+end
+
+##########################
+
 function copyto_start!(dst::MutableMemoryView{T}, src::ImmutableMemoryView{T})::Int where {T}
     mn = min(length(dst), length(src))
     copyto!(dst[begin:mn], src[begin:mn])
@@ -205,6 +291,7 @@ end
 
 include("base.jl")
 include("bufreader.jl")
+include("bufwriter.jl")
 include("lineiterator.jl")
 
 end # module BufIO

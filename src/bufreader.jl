@@ -1,3 +1,13 @@
+"""
+    BufReader{T <: IO} <: AbstractBufReader
+    BufReader(io::IO, [buffer_size::Int])
+
+Wrap an `IO` in a struct with its own buffer, giving it the `AbstractBufReader` interface.
+Errors when passed a buffer size of zero.
+
+The `BufReader` has an infinitely growable buffer, and will only grow the buffer if
+the buffer is full.
+"""
 mutable struct BufReader{T <: IO} <: AbstractBufReader
     const io::T
     buffer::Memory{UInt8}
@@ -87,3 +97,15 @@ function consume(x::BufReader, n::Int)
 end
 
 Base.close(x::BufReader) = close(x.io)
+
+function Base.position(x::BufReader)
+    res = Int(position(x.io))::Int - length(get_buffer(x))
+    @assert res >= 0
+    return res
+end
+
+function Base.seek(x::BufReader, position::Int)
+    x.start = 1
+    x.stop = 0
+    return seek(x.io, position)
+end
