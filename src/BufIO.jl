@@ -5,10 +5,12 @@ using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
 export AbstractBufReader,
     BufReader,
     BufWriter,
+    CursorReader,
     IOError,
     IOErrorKinds,
     get_buffer,
     get_nonempty_buffer,
+    get_minimum_buffer,
     fill_buffer,
     consume,
     read_into!,
@@ -27,6 +29,7 @@ module IOErrorKinds
     """
     @enum IOErrorKind::UInt8 begin
         ConsumeBufferError
+        EmptyBuffer
     end
 end
 
@@ -166,10 +169,21 @@ Returns `nothing` only if `x` is EOF.
 function get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemoryView{UInt8}}
     buf = get_buffer(x)
     isempty(buf) || return buf
-    iszero(fill_buffer(x)) && return nothing
+    # Per the API, fill_buffer is not allowed to return nothing when the buffer
+    # is empty, so calling something here is permitted.
+    iszero(something(fill_buffer(x))) && return nothing
     buf = get_buffer(x)
     @assert !isempty(buf)
     return buf
+end
+
+function get_buffer(x::AbstractBufReader, min_size::Int)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    buffer = get_buffer(x)
+    while length(buffer) < min_size
+        iszero(fill_buffer(x)) && return nothing
+        buffer = get_buffer(x)
+    end
+    return buffer
 end
 
 """
@@ -231,40 +245,12 @@ must return at least 1.
 Subtypes `T` of this type should implement at least:
 
 * `get_buffer(io::T)`
+* `get_buffer(io::T, ::Int)`
 * `Base.close(io::T)`
 * `Base.flush(io::T)`
 * `consume(io::T, n::Int)`
-
-Subtypes can optionally implement:
-
-* `expand_buffer(io::T, ::Int)`
-* `get_buffer(io::T, ::Int)`
 """
 abstract type AbstractBufWriter end
-
-"""
-    expand_buffer(io::AbstractBufWriter, additional::Int)::Bool
-
-Make room for at least `additional` more bytes in `io`'s buffer.
-This function may obtain the space either by flushing the buffer,
-or allocating a new buffer, or both.
-
-Return whether the operation was successful.
-"""
-function expand_buffer end
-
-function get_buffer(x::AbstractBufWriter, min_size::Int)
-    buffer = get_buffer(x)
-    length(buffer) >= min_size && return buffer
-    return get_buffer_slowpath(x, length(buffer), min_size)
-end
-
-@noinline function get_buffer_slowpath(x::AbstractBufWriter, bufferlen::Int, min_size::Int)
-    expand_buffer(x, min_size - bufferlen) || return nothing
-    buffer = get_buffer(x)
-    @assert length(buffer) >= min_size
-    return buffer
-end
 
 function get_nonempty_buffer(x::AbstractBufWriter)
     buffer = get_buffer(x)
@@ -272,13 +258,6 @@ function get_nonempty_buffer(x::AbstractBufWriter)
     buffer = get_buffer(x)
     @assert !isempty(buffer)
     return buffer
-end
-
-function Base.write(io::AbstractBufWriter, x::UInt8)
-    buffer = get_nonempty_buffer(io)
-    buffer[1] = x
-    consume(io, 1)
-    return 1
 end
 
 ##########################
@@ -293,5 +272,6 @@ include("base.jl")
 include("bufreader.jl")
 include("bufwriter.jl")
 include("lineiterator.jl")
+include("cursor.jl")
 
 end # module BufIO

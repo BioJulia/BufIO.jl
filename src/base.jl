@@ -221,6 +221,13 @@ function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
     return take!(io)
 end
 
+function Base.write(io::AbstractBufWriter, x::UInt8)
+    buffer = get_nonempty_buffer(io)
+    buffer[1] = x
+    consume(io, 1)
+    return 1
+end
+
 #=
 readeach
 readlines

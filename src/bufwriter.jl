@@ -92,13 +92,3 @@ function Base.write(io::BufWriter, mem::ImmutableMemoryView{UInt8})
     end
     return length(mem)
 end
-
-# Fallback method using a temporary buffer
-function Base.write(io::BufWriter, x1, xs...)
-    buf = IOBuffer()
-    write(buf, x1)
-    for x in xs
-        write(buf, x)
-    end
-    return write(io, ImmutableMemoryView(take!(buf)))
-end
