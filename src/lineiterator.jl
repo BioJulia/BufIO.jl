@@ -72,5 +72,5 @@ function Base.iterate(x::EachLine, _::Nothing = nothing)
 end
 
 function Base.eachline(x::AbstractBufReader; keep::Bool = false)
-    return EachLine{typeof(x)}(line_views(x; chomp = keep))
+    return EachLine{typeof(x)}(line_views(x; chomp = !keep))
 end

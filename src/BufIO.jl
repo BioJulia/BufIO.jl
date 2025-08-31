@@ -5,12 +5,12 @@ using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
 export AbstractBufReader,
     BufReader,
     BufWriter,
+    IOReader,
     CursorReader,
     IOError,
     IOErrorKinds,
     get_buffer,
     get_nonempty_buffer,
-    get_minimum_buffer,
     fill_buffer,
     consume,
     read_into!,
@@ -20,6 +20,11 @@ export AbstractBufReader,
 
 public ConsumeBufferError, LineViewIterator
 
+"""
+    module IOErrorKinds
+
+Used as a namespace for IOErrorKind.
+"""
 module IOErrorKinds
     """
         IOErrorKind
@@ -273,5 +278,6 @@ include("bufreader.jl")
 include("bufwriter.jl")
 include("lineiterator.jl")
 include("cursor.jl")
+include("buffered.jl")
 
 end # module BufIO

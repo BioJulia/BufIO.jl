@@ -1,6 +1,7 @@
 """
     BufReader{T <: IO} <: AbstractBufReader
-    BufReader(io::IO, [buffer_size::Int])
+
+    BufReader(io::IO, [buffer_size::Int])::BufReader
 
 Wrap an `IO` in a struct with its own buffer, giving it the `AbstractBufReader` interface.
 Errors when passed a buffer size of zero.
