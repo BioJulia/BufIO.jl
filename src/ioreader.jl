@@ -13,7 +13,8 @@ julia> io = BufReader(IOBuffer("hello"));
 julia> f(x::IO) = String(read(x));
 
 julia> f(io)
-ERROR: [...]
+ERROR: MethodError: no method matching f(::BufReader{IOBuffer})
+[...]
 
 julia> f(IOReader(io))
 "hello"

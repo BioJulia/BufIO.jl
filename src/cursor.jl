@@ -1,3 +1,19 @@
+"""
+    CursorReader(x) <: AbstractBufReader
+
+A stateful reader that reads the content of any object `x` which implements
+`MemoryView(x)::MemoryView{UInt8}`.
+
+```jldoctest
+julia> rdr = CursorReader("some\\ncontent\\nhere");
+
+julia> readline(rdr)
+"some"
+
+julia> read(rdr, String)
+"content\\nhere"
+```
+"""
 mutable struct CursorReader <: AbstractBufReader
     data::ImmutableMemoryView{UInt8}
     i::Int

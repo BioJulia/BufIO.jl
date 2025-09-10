@@ -1,6 +1,5 @@
 """
     BufReader{T <: IO} <: AbstractBufReader
-
     BufReader(io::IO, [buffer_size::Int])::BufReader
 
 Wrap an `IO` in a struct with its own buffer, giving it the `AbstractBufReader` interface.
@@ -67,11 +66,7 @@ end
         copyto!(x.buffer, 1, x.buffer, x.start, n_filled)
     else
         # Allocate new buffer.
-        # Overallocation scheme copied from Base.
-        size = length(x.buffer) % UInt
-        exp2 = (8 * sizeof(size) - leading_zeros(size)) % UInt
-        size += (1 << div(exp2 * 7, 8)) * 4 + div(size, 8)
-        size = max(64, size % Int)
+        size = overallocation_size(length(x.buffer) % UInt)
         mem = Memory{UInt8}(undef, size)
         copyto!(mem, 1, x.buffer, x.start, n_filled)
         x.buffer = mem

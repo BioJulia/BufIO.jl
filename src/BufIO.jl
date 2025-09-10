@@ -3,8 +3,10 @@ module BufIO
 using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
 
 export AbstractBufReader,
+    AbstractBufWriter,
     BufReader,
     BufWriter,
+    VecWriter,
     IOReader,
     CursorReader,
     IOError,
@@ -16,9 +18,10 @@ export AbstractBufReader,
     read_into!,
     read_all!,
     line_views,
-    expand_buffer
+    take,
+    to_parts
 
-public ConsumeBufferError, LineViewIterator
+public LineViewIterator
 
 """
     module IOErrorKinds
@@ -35,10 +38,14 @@ module IOErrorKinds
     @enum IOErrorKind::UInt8 begin
         ConsumeBufferError
         EmptyBuffer
+        BadSeek
+        EOF
     end
+
+    public ConsumeBufferError, EmptyBuffer, BadSeek, EOF
 end
 
-using .IOErrorKinds: IOErrorKind, ConsumeBufferError
+using .IOErrorKinds: IOErrorKind
 
 """
     IOError
@@ -46,7 +53,7 @@ using .IOErrorKinds: IOErrorKind, ConsumeBufferError
 This type is thrown by errors of AbstractBufReader.
 They contain the `.kind::IOErrorKind` public property.
 """
-struct IOError
+struct IOError <: Exception
     kind::IOErrorKind
 end
 
@@ -67,13 +74,13 @@ end
 
 
 """
-    abstract type BufReader <: Any end
+    abstract type AbstractBufReader <: Any end
 
-A `BufReader` is an IO type that exposes a buffer to the user, thereby
+An `AbstractBufReader` is an IO type that exposes a buffer to the user, thereby
 allowing efficient IO.
 
 !!! warning
-    By default, subtypes of `BufReader` are **not threadsafe**, so concurrent usage
+    By default, subtypes of `AbstractBufReader` are **not threadsafe**, so concurrent usage
     should protect the instance behind a lock.
 
 Subtypes `T` of this type should implement at least:
@@ -113,6 +120,7 @@ specified semantics:
 * `eachline(x::T)` does not support `last`, or `Iterators.reverse` and is fully stateful
   (its iterator state is always `nothing`). It does not promise to free its underlying resource
   when being garbage collected.
+* `seek(x::T, i::Integer)` will throw an `IOError` if `i` is out of bounds. `i` is zero-indexed.
 """
 abstract type AbstractBufReader end
 
@@ -122,16 +130,14 @@ abstract type AbstractBufReader end
 Get the available bytes of `io`.
 
 Calling this function when the buffer is empty should not attempt to fill the buffer.
+To fill the buffer, call [`fill_buffer`](@ref).
 
     get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}
-    get_buffer(io::AbstractBufWriter, min_size::Int)::Union{MutableMemoryView{UInt8}, Nothing}
 
 Get the available mutable buffer of `io` that can be written to.
 
 Calling this function when the buffer is empty should not attempt to fill the buffer.
-When `min_size` is passed, make sure the buffer contains at least `min_size` bytes.
-This may be achieved by flushing and/or allocating a new buffer.
-If the type does not support such large buffer sizes, return `nothing`.
+To fill the buffer, call `flush`.
 """
 function get_buffer end
 
@@ -180,15 +186,6 @@ function get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemo
     buf = get_buffer(x)
     @assert !isempty(buf)
     return buf
-end
-
-function get_buffer(x::AbstractBufReader, min_size::Int)::Union{Nothing, ImmutableMemoryView{UInt8}}
-    buffer = get_buffer(x)
-    while length(buffer) < min_size
-        iszero(fill_buffer(x)) && return nothing
-        buffer = get_buffer(x)
-    end
-    return buffer
 end
 
 """
@@ -240,7 +237,7 @@ This can help avoiding intermediate allocations when writing.
 For example, integers can usually be written to buffered writers without allocating. 
 
 !!! warning
-    By default, subtypes of `BufReader` are **not threadsafe**, so concurrent usage
+    By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage
     should protect the instance behind a lock.
 
 Subtypes of this type should have a buffer of at least 1 byte.
@@ -250,20 +247,114 @@ must return at least 1.
 Subtypes `T` of this type should implement at least:
 
 * `get_buffer(io::T)`
-* `get_buffer(io::T, ::Int)`
 * `Base.close(io::T)`
 * `Base.flush(io::T)`
 * `consume(io::T, n::Int)`
+
+Subtypes `T` of this type have implementations for many Base IO methods, but with more precisely
+specified semantics:
+* `seek(x::T, i::Integer)` will throw an `IOError` if `i` is out of bounds. `i` is zero-indexed.
 """
 abstract type AbstractBufWriter end
 
-function get_nonempty_buffer(x::AbstractBufWriter)
+# Types where write(io, x) is the same as copying x
+const PLAIN_TYPES = (
+    Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Int128, UInt128,
+    Bool,
+    Float16, Float32, Float64,
+)
+
+const PlainTypes = Union{PLAIN_TYPES...}
+const PlainMemory = Union{map(T -> MemoryView{T}, PLAIN_TYPES)...}
+
+"""
+    get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
+
+Get a buffer with at least one byte, if bytes are available.
+Otherwise, call `flush`, then get the buffer again.
+Returns `nothing` if the buffer gotten after flushing is still empty. 
+"""
+function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
     buffer = get_buffer(x)
-    isempty(buffer) && flush(x)
+    isempty(buffer) || return buffer
+    flush(x)
     buffer = get_buffer(x)
-    @assert !isempty(buffer)
-    return buffer
+    return isempty(buffer) ? nothing : buffer
 end
+
+function Base.write(io::AbstractBufWriter, mem::Union{String, SubString{String}, PlainMemory})
+    so = sizeof(mem)
+    offset = 0
+    GC.@preserve mem begin
+        src = Ptr{UInt8}(pointer(mem))
+        while offset < so
+            buffer = get_nonempty_buffer(io)
+            isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
+            isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
+            mn = min(so - offset, length(buffer))
+            GC.@preserve buffer unsafe_copyto!(pointer(buffer), src, mn % UInt)
+            offset += mn
+            src += mn
+            consume(io, mn)
+        end
+    end
+    return so
+end
+
+function Base.write(io::AbstractBufWriter, x::PlainTypes)
+    buffer = get_buffer(io)
+    # Get buffer at least the size of `x` to enable the fast path, if possible
+    if length(buffer) < sizeof(x)
+        flush(io)
+        buffer = get_buffer(io)
+        length(buffer) < sizeof(x) && return _write_slowpath(io, x)
+    end
+    # Copy the bits in directly
+    GC.@preserve buffer begin
+        p = Ptr{typeof(x)}(pointer(buffer))
+        unsafe_store!(p, x)
+    end
+    @inbounds consume(io, sizeof(x))
+    return sizeof(x)
+end
+
+@noinline function _write_slowpath(io::AbstractBufWriter, x::PlainTypes)
+    # We serialize as little endian, so byteswap if machine is big endian
+    u = htol(as_unsigned(x))
+    n_written = 0
+    while n_written < sizeof(u)
+        buffer = get_nonempty_buffer(io)
+        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
+        n_written_at_start = n_written
+        for i in eachindex(buffer)
+            buffer[i] = u % UInt8
+            u >>>= 8
+            n_written += 1
+            n_written == sizeof(u) && break
+        end
+        consume(io, n_written - n_written_at_start)
+    end
+    return sizeof(u)
+end
+
+Base.@constprop :aggressive @inline function as_unsigned(x::PlainTypes)
+    so = sizeof(x)
+    return if so == 1
+        reinterpret(UInt8, x)
+    elseif so == 2
+        reinterpret(UInt16, x)
+    elseif so == 4
+        reinterpret(UInt32, x)
+    elseif so == 8
+        reinterpret(UInt64, x)
+    elseif so == 16
+        reinterpret(UInt128, x)
+    else
+        error("unreachable")
+    end
+end
+
+Base.seekstart(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, 0)
 
 ##########################
 
@@ -273,11 +364,20 @@ function copyto_start!(dst::MutableMemoryView{T}, src::ImmutableMemoryView{T})::
     return mn
 end
 
+# Get the new size of a buffer grown from size `size`
+# Copied from Base
+function overallocation_size(size::UInt)
+    exp2 = (8 * sizeof(size) - leading_zeros(size)) % UInt
+    size += (1 << div(exp2 * 7, 8)) * 4 + div(size, 8)
+    return size = max(64, size % Int)
+end
+
 include("base.jl")
 include("bufreader.jl")
 include("bufwriter.jl")
 include("lineiterator.jl")
 include("cursor.jl")
-include("buffered.jl")
+include("ioreader.jl")
+include("vecwriter.jl")
 
 end # module BufIO

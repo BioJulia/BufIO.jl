@@ -223,12 +223,8 @@ end
 
 function Base.write(io::AbstractBufWriter, x::UInt8)
     buffer = get_nonempty_buffer(io)
-    buffer[1] = x
-    consume(io, 1)
+    isempty(buffer) && error("Buffer not long enough, bad implementation of get_buffer")
+    @inbounds buffer[1] = x
+    @inbounds consume(io, 1)
     return 1
 end
-
-#=
-readeach
-readlines
-=#

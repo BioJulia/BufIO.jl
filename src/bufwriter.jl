@@ -1,3 +1,14 @@
+"""
+    BufWriter{T <: IO} <: AbstractBufWriter
+    BufWriter(io::IO, [buffer_size::Int])::BufWriter
+
+Wrap an `IO` in a struct with its own buffer, giving it the `AbstractBufReader` interface.
+Errors when passed a buffer size of zero.
+
+The `BufWriter` has an infinitely growable buffer, and will expand the buffer after flushing
+if more bytes are requested only grow the buffer if
+the buffer is full.
+"""
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
     io::T
     buffer::Memory{UInt8}
@@ -24,25 +35,17 @@ function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[x.first_unused_index:end]
 end
 
-function get_buffer(x::BufWriter, min_size::Int)
-    buffer = get_buffer(x)
-    length(buffer) >= min_size && return buffer
-    return get_buffer_slowpath(x, length(buffer), min_size)
-end
-
-@noinline function get_buffer_slowpath(x::BufWriter, bufferlen::Int, min_size::Int)
-    expand_buffer(x, min_size - bufferlen)
-    buffer = get_buffer(x)
-    @assert length(buffer) >= min_size
-    return buffer
-end
-
-function Base.flush(x::BufWriter)
+function shallow_flush(x::BufWriter)
     if x.first_unused_index > 1
         used = @inbounds ImmutableMemoryView(x.buffer)[1:(x.first_unused_index - 1)]
         write(x.io, used)
         x.first_unused_index = 1
     end
+    return nothing
+end
+
+function Base.flush(x::BufWriter)
+    shallow_flush(x)
     flush(x.io)
     return nothing
 end
@@ -55,18 +58,8 @@ function Base.close(x::BufWriter)
     return nothing
 end
 
-function expand_buffer(x::BufWriter, additional::Int)
-    additional < 1 && return true
-    n_used = x.first_unused_index - 1
-    iszero(n_used) || flush(x)
-    if additional > n_used
-        x.buffer = Memory{UInt8}(undef, length(x.buffer) - n_used + additional)
-    end
-    return true
-end
-
 function consume(x::BufWriter, n::Int)
-    if (n % UInt) > (length(x.buffer) - x.first_unused_index + 1) % UInt
+    @boundscheck if (n % UInt) > (length(x.buffer) - x.first_unused_index + 1) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
     x.first_unused_index += n
@@ -76,19 +69,17 @@ end
 #### Base ops
 
 function Base.write(io::BufWriter, mem::ImmutableMemoryView{UInt8})
-    isempty(mem) && return 0
     remaining = mem
     while !isempty(remaining)
         buffer = get_buffer(io)
         if isempty(buffer)
-            flush(io)
+            shallow_flush(io)
             buffer = get_buffer(io)
         end
-        mn = min(length(buffer), length(remaining))
-        @assert mn > 0
-        copyto!(buffer, @inbounds remaining[1:mn])
-        consume(io, mn)
-        remaining = @inbounds remaining[(mn + 1):end]
+        copied = copyto_start!(buffer, remaining)
+        @assert !iszero(copied)
+        consume(io, copied)
+        remaining = @inbounds remaining[(copied + 1):end]
     end
     return length(mem)
 end
