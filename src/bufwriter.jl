@@ -35,17 +35,22 @@ function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[x.first_unused_index:end]
 end
 
-function shallow_flush(x::BufWriter)
-    if x.first_unused_index > 1
-        used = @inbounds ImmutableMemoryView(x.buffer)[1:(x.first_unused_index - 1)]
+function get_data(x::BufWriter)::MutableMemoryView{UInt8}
+    return @inbounds MemoryView(x.buffer)[1:(x.first_unused_index - 1)]
+end
+
+function fill_buffer(x::BufWriter)
+    to_flush = x.first_unused_index - 1
+    if !iszero(to_flush)
+        used = @inbounds ImmutableMemoryView(x.buffer)[1:to_flush]
         write(x.io, used)
         x.first_unused_index = 1
     end
-    return nothing
+    return to_flush
 end
 
 function Base.flush(x::BufWriter)
-    shallow_flush(x)
+    fill_buffer(x)
     flush(x.io)
     return nothing
 end
@@ -64,22 +69,4 @@ function consume(x::BufWriter, n::Int)
     end
     x.first_unused_index += n
     return nothing
-end
-
-#### Base ops
-
-function Base.write(io::BufWriter, mem::ImmutableMemoryView{UInt8})
-    remaining = mem
-    while !isempty(remaining)
-        buffer = get_buffer(io)
-        if isempty(buffer)
-            shallow_flush(io)
-            buffer = get_buffer(io)
-        end
-        copied = copyto_start!(buffer, remaining)
-        @assert !iszero(copied)
-        consume(io, copied)
-        remaining = @inbounds remaining[(copied + 1):end]
-    end
-    return length(mem)
 end

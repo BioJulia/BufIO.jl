@@ -7,6 +7,7 @@ makedocs(;
     modules = [BufIO],
     pages = [
         "BufIO" => "index.md",
+        "Readers" => "readers.md",
         "API reference" => "reference.md",
     ],
     authors = "Jakob Nybo Nissen",

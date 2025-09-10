@@ -12,13 +12,13 @@ export AbstractBufReader,
     IOError,
     IOErrorKinds,
     get_buffer,
+    get_data,
     get_nonempty_buffer,
     fill_buffer,
     consume,
     read_into!,
     read_all!,
     line_views,
-    take,
     to_parts
 
 public LineViewIterator
@@ -40,9 +40,10 @@ module IOErrorKinds
         EmptyBuffer
         BadSeek
         EOF
+        BufferTooShort
     end
 
-    public ConsumeBufferError, EmptyBuffer, BadSeek, EOF
+    public ConsumeBufferError, EmptyBuffer, BadSeek, EOF, BufferTooShort
 end
 
 using .IOErrorKinds: IOErrorKind
@@ -74,7 +75,7 @@ end
 
 
 """
-    abstract type AbstractBufReader <: Any end
+    abstract type AbstractBufReader end
 
 An `AbstractBufReader` is an IO type that exposes a buffer to the user, thereby
 allowing efficient IO.
@@ -93,36 +94,50 @@ Subtypes `T` of this type should implement at least:
 # Extended help
 
 * Methods of `Base.close` should make sure that calling `close` on an already-closed
-  object has no visible effects. 
+  object has no visible effects.
+* `seek(x::T, i::Integer)` should throw an `IOError` if `i` is out of bounds. `i` is zero-indexed.
 
 Subtypes `T` of this type have implementations for many Base IO methods, but with more precisely
-specified semantics:
-
-* `bytesavailable(::T)`
-* `eof(::T)`
-* `read(::T)` and `read(::T, String)`
-* `unsafe_read(x::T, p::Ptr{UInt8}, n::UInt)` will read `n` bytes, or until `x` is EOF,
-  whichever is first, returning the number of bytes read. This causes UB only if `p` is not
-  a valid pointer with `n` bytes of space or more.
-* `readavailable(x::T)` will do exactly one underlying IO call if the buffer is empty,
-  zero calls if the buffer is nonempty, and will only return an empty vector if `x` is EOF.
-* `read(x::T, UInt8)` and `peek(x::T, UInt8)` will throw an `EOFError` if `x` is EOF.
-* `read!(x::T, A::AbstractArray)` requires that `eltype(A) === UInt8`, and that `A` implements
-  `sizeof` and can be `unsafe_convert`ed to `Ptr{UInt8}`.
-* `readbytes!(x::T, b, n)` requires that `b` is one-based indexed, and will read until `x` is
-  EOF or `n` bytes has been read.
-* `copyuntil(out::IO, x::T, delim; keep)`, requires that `delim::UInt8`. If `delim` is not found,
-  the entire content of `x` it copied to `out`.
-* `readuntil(x::T, delim)` requires that `delim::UInt8`
-* `copyline`: Throws an `ArgumentError` if the buf reader has an ungrowable buffer size of 1 byte,
-  and an `\\r` is encountered, since there is no way to know if this is part of an `\\r\\n` newline.
-* `peek(x::T, ::Type{A})` requires that `A === UInt8`
-* `eachline(x::T)` does not support `last`, or `Iterators.reverse` and is fully stateful
-  (its iterator state is always `nothing`). It does not promise to free its underlying resource
-  when being garbage collected.
-* `seek(x::T, i::Integer)` will throw an `IOError` if `i` is out of bounds. `i` is zero-indexed.
+specified semantics. See docstrings of the specific functions of interest.
 """
 abstract type AbstractBufReader end
+
+"""
+    abstract type AbstractBufWriter end
+
+An `AbstractBufWriter` is an IO-like type which exposes mutable memory
+to the user, which can be written to directly.
+This can help avoiding intermediate allocations when writing.
+For example, integers can usually be written to buffered writers without allocating. 
+
+!!! warning
+    By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage
+    should protect the instance behind a lock.
+
+Subtypes of this type should have a buffer of at least 1 byte.
+That implies that, if the `io` is capable of flushing, after calling `flush` on `x::T`,
+`length(get_buffer(x))` must return at least 1.
+
+Subtypes `T` of this type should implement at least:
+
+* `get_buffer(io::T)`
+* `fill_buffer(io::T)`
+* `Base.close(io::T)`
+* `Base.flush(io::T)`
+* `consume(io::T, n::Int)`
+
+They may optionally implement
+* `get_data`
+
+# Extended help
+
+* Methods of `Base.close` should make sure that calling `close` on an already-closed
+  object has no visible effects.
+* `seek(x::T, i::Integer)` should throw an `IOError` if `i` is out of bounds. `i` is zero-indexed.
+* `flush(x::T)` should be implemented, but may simply return `nothing` if there is no
+  underlying stream to flush to.
+"""
+abstract type AbstractBufWriter end
 
 """
     get_buffer(io::AbstractBufReader)::ImmutableMemoryView{UInt8}
@@ -131,15 +146,18 @@ Get the available bytes of `io`.
 
 Calling this function when the buffer is empty should not attempt to fill the buffer.
 To fill the buffer, call [`fill_buffer`](@ref).
+"""
+function get_buffer(::AbstractBufReader) end
 
+"""
     get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}
 
 Get the available mutable buffer of `io` that can be written to.
 
 Calling this function when the buffer is empty should not attempt to fill the buffer.
-To fill the buffer, call `flush`.
+To fill the buffer, call [`fill_buffer`](@ref).
 """
-function get_buffer end
+function get_buffer(::AbstractBufWriter) end
 
 """
     fill_buffer(io::AbstractBufReader)::Union{Int, Nothing}
@@ -155,16 +173,60 @@ This function must fill at least one byte, except
 Buffered readers which do not wrap another underlying IO, and therefore can't fill
 its buffer should return 0 unconditionally.
 This function should never return `nothing` if the buffer is empty.
+
+!!! warning
+    Idiomatically, users should not call `fill_buffer` when the buffer is not empty,
+    because this allows `io` to control its own buffer size and do not force growing
+    the buffer. Calling `fill_buffer` on a nonempty buffer is only appropriate if, for
+    algorithmic reasons you need `io` itself to buffer some minimum amount of data.
 """
-function fill_buffer end
+function fill_buffer(::AbstractBufReader) end
+
+"""
+    fill_buffer(io::AbstractBufWriter)::Int
+
+Increase the amount of bytes in the writeable buffer of `io`, returning
+the number of bytes added. After calling `fill_buffer` and getting `n`,
+the buffer obtained by `get_buffer` should have `n` more bytes.
+
+This function may increase the buffer size by flushing buffered bytes to
+the underlying io, or by allocating a new buffer.
+
+If `io` can neither flush (e.g. because there is no data to flush, or no underlying
+IO object to flush io), not expand its buffer (e.g. because the type does not
+support expanding the buffer, or the buffer is already at maximum size), this function
+may return zero.
+
+!!! warning
+    Idiomatically, users should not call `fill_buffer` when the buffer is not empty,
+    because this allows `io` to control its own buffer size and do not force growing
+    the buffer. Calling `fill_buffer` on a nonempty buffer is only appropriate if, for
+    algorithmic reasons you need `io` to be able to contain a minimum amount of data.
+"""
+function fill_buffer(::AbstractBufWriter) end
+
+"""
+    get_data(io::AbstractBufWriter)::MutableMemoryView{UInt8}
+
+Return a view into the buffered data already written to `io`, but not yet flushed
+to its underlying IO.
+Bytes not appearing in the buffer may not be entirely flushed (as in `Base.flush`)
+if there are more layers of buffering in the IO wrapped by `io`, however, the length
+of the buffer should give the number of bytes still stored in `io` itself.
+
+Mutating the returned buffer is allowed and should not cause `io` to malfunction.
+"""
+function get_data(::AbstractBufWriter) end
 
 """
     consume(io::Union{AbstractBufReader, AbstractBufWriter}, n::Int)::Nothing
 
 Remove the first `n` bytes of the buffer of `io`.
 Consumed bytes will not be returned by future calls to `get_buffer`.
+
 If n is negative, or larger than the current buffer size,
 throw an `IOError` with `ConsumeBufferError` kind.
+This check is a boundscheck and may be elided with `@inbounds`.
 """
 function consume end
 
@@ -175,7 +237,7 @@ function consume end
 
 Get a buffer with at least one byte, if bytes are available.
 Otherwise, fill the buffer, and return the newly filled buffer.
-Returns `nothing` only if `x` is EOF. 
+Returns `nothing` only if `x` is EOF.
 """
 function get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemoryView{UInt8}}
     buf = get_buffer(x)
@@ -192,10 +254,11 @@ end
     read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 
 Read bytes into the beginning of `dst`, returning the number of bytes read.
-This function will always read at least 1 bytes, except when `dst` is empty,
+This function will always read at least 1 byte, except when `dst` is empty,
 or `x` is EOF.
 
-This function should do at most one read call to the underlying IO, if `x`
+This function is defined generically for `AbstractBufReader`. New methods
+should strive to do at most one read call to the underlying IO, if `x`
 wraps such an `IO`.
 """
 function read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
@@ -203,7 +266,7 @@ function read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
     src = get_nonempty_buffer(x)
     isnothing(src) && return 0
     n_read = copyto_start!(dst, src)
-    consume(x, n_read)
+    @inbounds consume(x, n_read)
     return n_read
 end
 
@@ -221,41 +284,12 @@ function read_all!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
         n_read_here = copyto_start!(dst, buf)
         n_total_read += n_read_here
         dst = dst[(n_read_here + 1):end]
-        consume(x, n_read_here)
+        @inbounds consume(x, n_read_here)
     end
     return n_total_read
 end
 
 #########################
-
-"""
-    abstract type AbstractBufWriter <: Any end
-
-An `AbstractBufWriter` is an IO-like type which exposes mutable memory
-to the user, which can be written to directly.
-This can help avoiding intermediate allocations when writing.
-For example, integers can usually be written to buffered writers without allocating. 
-
-!!! warning
-    By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage
-    should protect the instance behind a lock.
-
-Subtypes of this type should have a buffer of at least 1 byte.
-That implies that, after calling `flush` on `x::T`, `length(get_buffer(x))`
-must return at least 1.
-
-Subtypes `T` of this type should implement at least:
-
-* `get_buffer(io::T)`
-* `Base.close(io::T)`
-* `Base.flush(io::T)`
-* `consume(io::T, n::Int)`
-
-Subtypes `T` of this type have implementations for many Base IO methods, but with more precisely
-specified semantics:
-* `seek(x::T, i::Integer)` will throw an `IOError` if `i` is out of bounds. `i` is zero-indexed.
-"""
-abstract type AbstractBufWriter end
 
 # Types where write(io, x) is the same as copying x
 const PLAIN_TYPES = (
@@ -271,90 +305,16 @@ const PlainMemory = Union{map(T -> MemoryView{T}, PLAIN_TYPES)...}
     get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
 
 Get a buffer with at least one byte, if bytes are available.
-Otherwise, call `flush`, then get the buffer again.
-Returns `nothing` if the buffer gotten after flushing is still empty. 
+Otherwise, call `fill_buffer`, then get the buffer again.
+Returns `nothing` if the buffer is still empty.
 """
 function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
     buffer = get_buffer(x)
     isempty(buffer) || return buffer
-    flush(x)
+    fill_buffer(x)
     buffer = get_buffer(x)
     return isempty(buffer) ? nothing : buffer
 end
-
-function Base.write(io::AbstractBufWriter, mem::Union{String, SubString{String}, PlainMemory})
-    so = sizeof(mem)
-    offset = 0
-    GC.@preserve mem begin
-        src = Ptr{UInt8}(pointer(mem))
-        while offset < so
-            buffer = get_nonempty_buffer(io)
-            isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
-            isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
-            mn = min(so - offset, length(buffer))
-            GC.@preserve buffer unsafe_copyto!(pointer(buffer), src, mn % UInt)
-            offset += mn
-            src += mn
-            consume(io, mn)
-        end
-    end
-    return so
-end
-
-function Base.write(io::AbstractBufWriter, x::PlainTypes)
-    buffer = get_buffer(io)
-    # Get buffer at least the size of `x` to enable the fast path, if possible
-    if length(buffer) < sizeof(x)
-        flush(io)
-        buffer = get_buffer(io)
-        length(buffer) < sizeof(x) && return _write_slowpath(io, x)
-    end
-    # Copy the bits in directly
-    GC.@preserve buffer begin
-        p = Ptr{typeof(x)}(pointer(buffer))
-        unsafe_store!(p, x)
-    end
-    @inbounds consume(io, sizeof(x))
-    return sizeof(x)
-end
-
-@noinline function _write_slowpath(io::AbstractBufWriter, x::PlainTypes)
-    # We serialize as little endian, so byteswap if machine is big endian
-    u = htol(as_unsigned(x))
-    n_written = 0
-    while n_written < sizeof(u)
-        buffer = get_nonempty_buffer(io)
-        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
-        n_written_at_start = n_written
-        for i in eachindex(buffer)
-            buffer[i] = u % UInt8
-            u >>>= 8
-            n_written += 1
-            n_written == sizeof(u) && break
-        end
-        consume(io, n_written - n_written_at_start)
-    end
-    return sizeof(u)
-end
-
-Base.@constprop :aggressive @inline function as_unsigned(x::PlainTypes)
-    so = sizeof(x)
-    return if so == 1
-        reinterpret(UInt8, x)
-    elseif so == 2
-        reinterpret(UInt16, x)
-    elseif so == 4
-        reinterpret(UInt32, x)
-    elseif so == 8
-        reinterpret(UInt64, x)
-    elseif so == 16
-        reinterpret(UInt128, x)
-    else
-        error("unreachable")
-    end
-end
-
-Base.seekstart(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, 0)
 
 ##########################
 

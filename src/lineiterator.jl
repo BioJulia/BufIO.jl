@@ -8,12 +8,10 @@ end
 
 Create an efficient, stateful iterator of lines of `x`.
 
-Lines are defined as all data up to and including a trailing newline (\\n, byte `0x0a`).
-If there is data after the last `\\n`, this is considered the last line.
-
+A line is defined as all data up to and
+including `\\n` (0x0a) or `\\r\\n` (0x0d 0x0a), or the remainder of the data in `io` if
+no `\\n` byte was found.
 If the input is empty, this iterator is also empty.
-Otherwise, if the input does not contain any newlines, this iterator
-contains exactly one element, consisting of the entirety of the input data.
 
 The lines are iterated as `ImmutableMemoryView{UInt8}`. Use the package StringViews.jl
 to turn them into `AbstractString`s. The `chomp` keyword (default: true), controls whether
@@ -71,6 +69,21 @@ function Base.iterate(x::EachLine, _::Nothing = nothing)
     return (String(view), nothing)
 end
 
+"""
+    eachline(io::AbstractBufReader; keep::Bool = false)
+
+Return an iterator of lines (as `String`) in `io`. A line is defined as all data up to and
+including `\\n` (0x0a) or `\\r\\n` (0x0d 0x0a), or the remainder of the data in `io` if
+no `\\n` byte was found.
+If the input is empty, this iterator is also empty.
+
+If `keep` is `false`, trailing `\\r\\n` or `\\n` are removed from each iterated line.
+
+Unlike `eachline(::IO)`, this method does not close `io` when iteration is done, and does not
+yet support `Iterators.reverse` or `last`.
+
+See also: [`line_views`](@ref)
+"""
 function Base.eachline(x::AbstractBufReader; keep::Bool = false)
     return EachLine{typeof(x)}(line_views(x; chomp = !keep))
 end

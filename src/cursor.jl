@@ -29,7 +29,7 @@ fill_buffer(::CursorReader) = 0
 get_buffer(x::CursorReader) = x.data[x.i:end]
 
 function consume(x::CursorReader, n::Int)
-    if (n % UInt) > (length(x.data) - x.i + 1) % UInt
+    @boundscheck if (n % UInt) > (length(x.data) - x.i + 1) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
     x.i += n

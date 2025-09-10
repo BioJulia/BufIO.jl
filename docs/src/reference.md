@@ -7,4 +7,10 @@ Order   = [:type, :function]
 
 ```@docs
 IOErrorKinds
+Base.unsafe_read(::AbstractBufReader, ::Any, ::UInt)
+Base.readavailable(::AbstractBufReader)
+Base.peek(x::AbstractBufReader, ::Type{UInt8})
+Base.read(x::AbstractBufReader, ::Type{UInt8})
+Base.readbytes!(x::AbstractBufReader, b::AbstractVector{UInt8}, nb::Integer = length(b))
+Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReader; keep::Bool = false)
 ```

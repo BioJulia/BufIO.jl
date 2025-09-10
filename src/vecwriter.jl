@@ -10,7 +10,7 @@ Create an `AbstractBufWriter` backed by a growable `Memory{UInt8}`.
 If passed, `len` is the initial buffer size, and must be at least 1 byte.
 It defaults to a small size.
 
-Use the functions `take` or `to_parts` to obtain the data written to the
+Use the functions `get_data` or `to_parts` to obtain the data written to the
 `VecWriter`.
 
 Functions `flush` and `close` do not affect the writer, and two-arg `get_buffer`
@@ -25,8 +25,8 @@ julia> write(vw, "Hello, world!")
 julia> write(vw, 0xe1fa)
 2
 
-julia> mem = take(vw); print(typeof(mem))
-MemoryViews.ImmutableMemoryView{UInt8}
+julia> mem = get_data(vw); print(typeof(mem))
+MemoryViews.MutableMemoryView{UInt8}
 
 julia> String(mem)
 "Hello, world!\\xfa\\xe1"
@@ -48,15 +48,16 @@ const DEFAULT_VECWIRTER_SIZE = 32
 VecWriter() = VecWriter(DEFAULT_VECWIRTER_SIZE)
 
 get_buffer(x::VecWriter) = @inbounds MemoryView(x.mem)[x.idx:end]
+get_data(x::VecWriter) = @inbounds MemoryView(x.mem)[1:(x.idx - 1)]
 
 function consume(x::VecWriter, n::Int)
-    nu = n % UInt
-    @boundscheck if (x.idx % UInt) + nu > (length(x.mem) + 1) % UInt
+    @boundscheck if (x.idx % UInt) + (n % UInt) > (length(x.mem) + 1) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
     return x.idx += n
 end
 
+fill_buffer(::VecWriter) = 0
 Base.close(::VecWriter) = nothing
 Base.flush(::VecWriter) = nothing
 
@@ -110,42 +111,17 @@ function _reallocate!(x::VecWriter, memsize::Int)
     return x
 end
 
-"""
-    take(x::VecWriter)::ImmutableMemoryView{UInt8}
-
-Return a view of the data written to `x`.
-
-See also: [`to_parts`](@ref)
-
-# Examples
-```jldoctest
-julia> vw = VecWriter();
-
-julia> write(vw, UInt32(5))
-4
-
-julia> take(vw)
-4-element MemoryViews.ImmutableMemoryView{UInt8}:
- 0x05
- 0x00
- 0x00
- 0x00
-```
-"""
-function take(x::VecWriter)
-    return @inbounds ImmutableMemoryView(x.mem)[1:(x.idx - 1)]
-end
 
 """
     to_parts(x::VecWriter)::Tuple{Memory{UInt8}, Int}
 
 Return `(mem, i)`, the full memory backing `x`, and the number of bytes written to the memory.
-The first `i` bytes of the memory `mem` is filled, and corresponds to `take(x)`.
+The first `i` bytes of the memory `mem` is filled, and corresponds to `get_data(x)`.
 
 Mutating `mem` may cause `x` to behave erratically, so this function should mostly be used
 when `x` is not used anymore.
 
-See also: [`take`](@ref)
+See also: [`get_data`](@ref)
 
 # Examples
 ```jldoctest
