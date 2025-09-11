@@ -2,9 +2,9 @@
     BufWriter{T <: IO} <: AbstractBufWriter
     BufWriter(io::IO, [buffer_size::Int])::BufWriter
 
-Wrap an `IO` in a struct with a new buffer, giving it the `AbstractBufReader` interface.
+Wrap an `IO` in a struct with a new buffer, giving it the `AbstractBufWriter` interface.
 
-The `BufWriter` has an infinitely growable buffer, and will expand the buffer if `grow_buffer`
+The `BufWriter` has an infinitely growable buffer, and will only expand the buffer if `grow_buffer`
 is called on it while it does not contain any data (as shown by `get_data`).
 
 Throw an `ArgumentError` if `buffer_size` is < 1.

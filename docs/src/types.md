@@ -17,6 +17,11 @@ BufReader
 BufWriter
 ```
 
+## IOReader
+```@docs; canonical=false
+IOReader
+```
+
 ## CursorReader
 ```@docs; canonical=false
 CursorReader

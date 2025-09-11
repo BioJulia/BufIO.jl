@@ -1,10 +1,10 @@
 """
     CursorReader(x) <: AbstractBufReader
 
-A stateful reader of the content of any object `x` which implements
+A seekable, stateful reader of the content of any object `x` which implements
 `MemoryView(x)::MemoryView{UInt8}`.
 
-A `CursorReader` supports seeking, but not writing. Closing it does nothing.
+Closing it does nothing.
 
 ```jldoctest
 julia> rdr = CursorReader("some\\ncontent\\nhere");

@@ -1,14 +1,22 @@
 # BufIO.jl
-This package implements the `AbstractBufReader`, readable IO objects with a better API than Base's `IO`, inspired by Rust's `BufRead` interface.
+BufIO is an alternative IO interface in Julia inspired by Rust, designed around exposing buffers to users for them to explicitly copying to and from.
+Compared to `Base.IO`, the interfaces in this package are generally:
 
-The package also provides the types `BufReader <: AbstractBufReader{T <: IO}` to wrap an `IO` in this new interface.
+* Lower level
+* Faster
+* Easier to reason about
+* Better specified, with more well-defined semantics
+* Free from slow fallback methods that trash your performance
 
-## Advantages of `AbstractBufReader` over `IO`
-* The provided API is more thoroughly specified than `IO`, including edge case behaviour.
-* It is more performant, enabling lower-level control by providing a view into the buffer.
+This package also provides a basic set of types which allows easy interoperation between `Base.IO` types the new buffered interface.
 
-## Current limitations
-* `BufReader`s currently do not compose (i.e. you can't wrap one around another).
-  This is because they provide the `AbstractBufReader` interface, but wraps an `IO`.
-* Currently, there is no `AbstractBufWriter` interface
-* Since these are supertypes, it is not possible for a type to be both an `AbstractBufReader` and `AbstractBufWriter`.
+## Comparison with other packages
+#### BufferedStreams.jl
+BufferedStreams.jl speeds up the existing `Base.IO` interface for unbuffered types by providing and internal buffer.
+However, the package does not provide an interface for reading/writing from the buffer directly,
+BufferedStreams also provide concrete types, but no abstract interface.
+Finally, it does not attempt to improve on the interface of `Base.IO`.
+
+#### TranscodingStreams.jl
+TranscodingStreams.jl provides buffering, but does so through a specific `Buffer` type instead of through an interface.
+It is also centered around *transcoding* and not IO in general. Its interface is both more complex and less documented than this package. Finally, it exposes the `Base.IO` interface instead of an alternative interface.

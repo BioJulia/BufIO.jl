@@ -6,15 +6,16 @@ end
 ```
 
 # BufIO.jl
-BufIO is an alternative IO interface in Julia inspired by Rust, designed around explicitly copying bytes between buffers. Compared to `Base.IO`, the interfaces in this package are generally:
+BufIO is an alternative IO interface in Julia inspired by Rust, designed around exposing buffers to users in order to explicitly copy bytes to and from them.
+Compared to `Base.IO`, the interfaces in this package are generally:
 
 * Lower level
-* Lower overhead (i.e, faster)
+* Faster
 * Easier to reason about
 * Better specified, with more well-defined semantics
-* Free of slow fallback methods that trash your performance
+* Free from slow fallback methods that trash your performance
 
-This package also provides types for interfacing between the new buffered IO types, and `Base.IO` types.
+This package also provides a basic set of types which allows easy interoperation between `Base.IO` types the new buffered interface.
 
 ## Example
 * Low-level example:
@@ -63,7 +64,7 @@ world!
 * `BufWriter <: AbstractBufWriter`: A type that wraps a `Base.IO` and a buffer
 * `CursorReader <: AbstractBufReader`: Turn any byte memory into a stateful reader
 * `IOReader <: Base.IO`: A type that wraps an `AbstractBufReader` but provdes the `Base.IO` interface
-* `VecWriter <: AbstractBufReader`: A lower level, faster and simpler analogue of `IOBuffer` used to construct data (e.g. strings) by writing to it
+* `VecWriter <: AbstractBufWriter`: A faster and simpler analogue of `IOBuffer` used to construct data (e.g. strings) by writing to it
 
 ## Design notes and limitations
 #### Requires Julia 1.11
@@ -76,3 +77,13 @@ Locks introduce unwelcome overhead and defeats the purpose of low-level control 
 Unlike `Base.IO` which encompasses both readers and writers, this package has two distinct interfaces for `AbstractBufReader` and `AbstractBufWriter`. This simplifies the interface for most types.
 
 In the unlikely case someone wants to create a type which is both, you can create a base type `T`, wrapper types `R <: AbstractBufReader` and `W <: AbstractBufWriter` and then implement `reader(::T)::R` and `writer(::T)::W`.
+
+#### Limitations on working with strings
+`String` is special-cased in Julia, which makes several important optimisations impossible in an external package. Hopefully, these will be removed in future versions of Julia:
+
+* Currently, reading from a `String` allocates. This is because strings are currently not backed by `Memory` and therefore cannot present a `MemoryView`.
+  Constructing a memory view from a string requires allocating a new `Memory` object.
+  Fortunately, the allocation is small since string need not be copied, but can share storage with the `Memory`.
+
+#### Julia compiler limitation
+This package makes heavy use of union-typed return values. These currently [have no ABI support in Julia](https://github.com/JuliaLang/julia/issues/53584), which makes this package significantly less efficient. That limitation will almost certainly be lifted in a future release of Julia.

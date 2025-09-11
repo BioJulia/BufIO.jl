@@ -1,8 +1,6 @@
 module BufIO
 
-# TODO: Decide on how seek should behave, document the method and check all implementations
-
-using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
+using MemoryViews: MemoryViews, ImmutableMemoryView, MutableMemoryView, MemoryView
 
 export AbstractBufReader,
     AbstractBufWriter,
@@ -77,14 +75,14 @@ module IOErrorKinds
         BadSeek,
         EOF,
         BufferTooShort,
-        PermissionDenied
-    NotFound
-    BrokenPipe
-    AlreadyExists
-    NotADirectory
-    IsADirectory
-    DirectoryNotEmpty
-    InvalidFileName
+        PermissionDenied,
+        NotFound,
+        BrokenPipe,
+        AlreadyExists,
+        NotADirectory,
+        IsADirectory,
+        DirectoryNotEmpty,
+        InvalidFileName
 end
 
 using .IOErrorKinds: IOErrorKind
@@ -174,9 +172,8 @@ For example, integers can usually be written to buffered writers without allocat
     By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage
     should protect the instance behind a lock.
 
-Subtypes of this type should have a buffer of at least 1 byte.
-That implies that, if the `io` is capable of flushing, after calling `flush` on `x::T`,
-`length(get_buffer(x))` must return at least 1.
+Subtypes of this type should not have a zero-sized buffer which cannot expand when calling
+`grow_buffer`.
 
 Subtypes `T` of this type should implement at least:
 
@@ -193,7 +190,6 @@ They may optionally implement
 
 * Methods of `Base.close` should make sure that calling `close` on an already-closed
   object has no visible effects.
-* `seek(x::T, i::Integer)` should throw an `IOError` if `i` is out of bounds. `i` is zero-indexed.
 * `flush(x::T)` should be implemented, but may simply return `nothing` if there is no
   underlying stream to flush to.
 """
@@ -233,8 +229,8 @@ This function should never return `nothing` if the buffer is empty.
 
 !!! warning
     Idiomatically, users should not call `fill_buffer` when the buffer is not empty,
-    because this allows `io` to control its own buffer size and do not force growing
-    the buffer. Calling `fill_buffer` on a nonempty buffer is only appropriate if, for
+    because doing so forces growing the buffer instead of letting `io` choose an optimal
+    buffer size. Calling `fill_buffer` with a nonempty buffer is only appropriate if, for
     algorithmic reasons you need `io` itself to buffer some minimum amount of data.
 """
 function fill_buffer(::AbstractBufReader) end
@@ -253,9 +249,10 @@ the buffer obtained by `get_buffer` should have `n` more bytes.
 
 !!! warning
     Idiomatically, users should not call `grow_buffer` when the buffer is not empty,
-    because this allows `io` to control its own buffer size and do not force growing
-    the buffer. Calling `grow_buffer` on a nonempty buffer is only appropriate if, for
-    algorithmic reasons you need `io` to be able to contain a minimum amount of data.
+    because doing so forces growing the buffer instead of letting `io` choose an optimal
+    buffer size. Calling `grow_buffer` with a nonempty buffer is only appropriate if, for
+    algorithmic reasons you need `io` buffer to be able to hold some minimum amount of data
+    before flushing.
 """
 function grow_buffer(::AbstractBufWriter) end
 
@@ -297,13 +294,13 @@ Otherwise, fill the buffer, and return the newly filled buffer.
 Returns `nothing` only if `x` is EOF.
 """
 function get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemoryView{UInt8}}
-    buf = get_buffer(x)
+    buf = get_buffer(x)::ImmutableMemoryView{UInt8}
     isempty(buf) || return buf
     # Per the API, fill_buffer is not allowed to return nothing when the buffer
     # is empty, so calling something here is permitted.
-    iszero(something(fill_buffer(x))) && return nothing
+    fill_buffer(x)
     buf = get_buffer(x)
-    @assert !isempty(buf)
+    isempty(buf) && return nothing
     return buf
 end
 
@@ -320,7 +317,7 @@ wraps such an `IO`.
 """
 function read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
     isempty(dst) && return 0
-    src = get_nonempty_buffer(x)
+    src = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
     isnothing(src) && return 0
     n_read = copyto_start!(dst, src)
     @inbounds consume(x, n_read)
@@ -336,7 +333,7 @@ the number of bytes read.
 function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
     n_total_read = 0
     while !isempty(dst)
-        buf = get_nonempty_buffer(io)
+        buf = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
         isnothing(buf) && return n_total_read
         n_read_here = copyto_start!(dst, buf)
         n_total_read += n_read_here
@@ -366,10 +363,10 @@ Otherwise, call `grow_buffer`, then get the buffer again.
 Returns `nothing` if the buffer is still empty.
 """
 function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
-    buffer = get_buffer(x)
+    buffer = get_buffer(x)::MutableMemoryView{UInt8}
     isempty(buffer) || return buffer
     grow_buffer(x)
-    buffer = get_buffer(x)
+    buffer = get_buffer(x)::MutableMemoryView{UInt8}
     return isempty(buffer) ? nothing : buffer
 end
 
@@ -377,7 +374,7 @@ end
 
 function copyto_start!(dst::MutableMemoryView{T}, src::ImmutableMemoryView{T})::Int where {T}
     mn = min(length(dst), length(src))
-    copyto!(dst[begin:mn], src[begin:mn])
+    @inbounds copyto!(@inbounds(dst[begin:mn]), @inbounds(src[begin:mn]))
     return mn
 end
 

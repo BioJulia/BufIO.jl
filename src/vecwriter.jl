@@ -1,66 +1,128 @@
-# TODO:
-# This is probably useful to build strings. Yet there is no API to Base.StringMemory.
-# Also, if we use to it build strings, isn't over overallocation overly wasteful?
-
 """
-    VecWriter([len::Int]) <: AbstractBufWriter
+    VecWriter([vec::Vector{UInt8}]) <: AbstractBufWriter
 
-Create an `AbstractBufWriter` backed by a growable `Memory{UInt8}`.
+Create an `AbstractBufWriter` backed by a `Vector{UInt8}`.
+Read the (public) property `.vec` to get the vector back.
 
-If passed, `len` is the initial buffer size, and must be at least 1 byte, else
-an `ArgumentError` is thrown. It defaults to a small size.
-
-Use the functions `get_data` or `to_parts` to obtain the data written to the
-`VecWriter`. `grow_buffer` will always reallocate the buffer.
+This type is useful as an efficient string builder through `String(io.vec)`
+or `takestring!(io)` (the latter in Julia 1.13+).
 
 Functions `flush` and `close` do not affect the writer.
+
+Mutating `io` will mutate `vec` and vice versa. Neither `vec` nor `io` will
+be invalidated by mutating the other, but doing so may affect the
+implicit (non-semantic) behaviour (e.g. memory reallocations or efficiency) of the other.
+For example, repeated and interleaved `push!(vec)` and `write(io, x)`
+may be less efficient, if one operation has memory allocation patterns
+that is suboptimal for the other operation.
 
 ```jldoctest
 julia> vw = VecWriter();
 
-julia> write(vw, "Hello, world!")
-13
+julia> write(vw, "Hello, world!", 0xe1fa)
+15
 
-julia> write(vw, 0xe1fa)
-2
+julia> append!(vw.vec, b"More data");
 
-julia> mem = get_data(vw); print(typeof(mem))
-MemoryViews.MutableMemoryView{UInt8}
-
-julia> String(mem)
-"Hello, world!\\xfa\\xe1"
+julia> String(vw.vec)
+"Hello, world!\\xfa\\xe1More data"
 ```
 """
-mutable struct VecWriter <: AbstractBufWriter
-    mem::Memory{UInt8}
-    idx::Int
-
-    function VecWriter(len::Int)
-        len < 1 && throw(ArgumentError("Must have a length of at least 1"))
-        mem = Memory{UInt8}(undef, len)
-        return new(mem, 1)
-    end
+struct VecWriter <: AbstractBufWriter
+    vec::Vector{UInt8}
 end
+
+get_ref(v::Vector) = Base.cconvert(Ptr, v)
+get_memory(v::Vector) = parent(get_ref(v))
+
+# This is faster than Base's method because Base's doesn't
+# special-case zero. Also, this method does not handle pointer-ful
+# arrays, so is not fully generic over element type.
+unsafe_set_length!(v::Vector{UInt8}, n::Int) = setfield!(v, :size, (n,))
+
+# Note: memoryrefoffset is 1-based despite the name
+first_unused_memindex(v::Vector{UInt8}) = (length(v) + Core.memoryrefoffset(get_ref(v)))
+
+unused_space(v::Vector{UInt8}) = length(get_memory(v)) - first_unused_memindex(v) + 1
+
+capacity(v::Vector) = length(get_memory(v)) - Core.memoryrefoffset(get_ref(v)) + 1
 
 const DEFAULT_VECWIRTER_SIZE = 32
 
-VecWriter() = VecWriter(DEFAULT_VECWIRTER_SIZE)
+function VecWriter()
+    vec = Vector{UInt8}(undef, DEFAULT_VECWIRTER_SIZE)
+    unsafe_set_length!(vec, 0)
+    return VecWriter(vec)
+end
 
-get_buffer(x::VecWriter) = @inbounds MemoryView(x.mem)[x.idx:end]
-get_data(x::VecWriter) = @inbounds MemoryView(x.mem)[1:(x.idx - 1)]
+function get_buffer(x::VecWriter)
+    vec = x.vec
+    return @inbounds MemoryView(get_memory(vec))[first_unused_memindex(vec):end]
+end
+
+"""
+    get_nonempty_buffer(
+        io::AbstractBufWriter, min_size::Int
+    )::MutableMemoryView{UInt8}
+
+Get a nonempty buffer of at least size `min_size`.
+
+This function need not be implemented for subtypes of `AbstractBufWriter` that do not
+flush their writes to an underlying IO.
+
+!!! warning
+    Use of this functions may cause excessive buffering without flushing,
+    which is less efficient than calling the one-argument method in a loop.
+    Authors should avoid implementing this method for types capable of flushing.
+"""
+function get_nonempty_buffer(x::VecWriter, min_size::Int)
+    ensure_unused_space!(x.vec, max(min_size, 1) % UInt)
+    mem = MemoryView(get_memory(x.vec))
+    return @inbounds MemoryViews.truncate_start_nonempty(mem, first_unused_memindex(x.vec))
+end
+
+get_nonempty_buffer(x::VecWriter) = get_nonempty_buffer(x, 1)
+
+get_data(x::VecWriter) = MemoryView(x.vec)
 
 function consume(x::VecWriter, n::Int)
-    @boundscheck if (x.idx % UInt) + (n % UInt) > (length(x.mem) + 1) % UInt
-        throw(IOError(IOErrorKinds.ConsumeBufferError))
+    vec = x.vec
+    @boundscheck begin
+        # Casting to unsigned handles negative n
+        (n % UInt) > (unused_space(vec) % UInt) && throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
-    return x.idx += n
+    veclen = length(vec)
+    unsafe_set_length!(vec, veclen + n)
+    return nothing
 end
 
 function grow_buffer(io::VecWriter)
-    current_size = length(io.mem)
-    new_size = overallocation_size(max(64, current_size) % UInt)
-    _reallocate!(io, new_size)
-    return new_size - current_size
+    initial_capacity = capacity(io.vec)
+    @inline add_space_with_overallocation!(io.vec, UInt(1))
+    return capacity(io.vec) - initial_capacity
+end
+
+# If C = Current capacity (get_data + get_buffer)
+# Then makes sure new capacity is overallocation(C + additional).
+# Do this by zeroing offset and, if necessary, reallocating memory
+function add_space_with_overallocation!(vec::Vector{UInt8}, additional::UInt)
+    current_mem = get_memory(vec)
+    new_size = overallocation_size(capacity(vec) % UInt + additional)
+    new_mem = if length(current_mem) ≥ new_size
+        current_mem
+    else
+        Memory{UInt8}(undef, new_size)
+    end
+    @inbounds copyto!(@inbounds(MemoryView(new_mem)[1:length(vec)]), MemoryView(vec))
+    setfield!(vec, :ref, memoryref(new_mem))
+    return nothing
+end
+
+# Ensure unused space is at least `space` bytes. Will overallocate
+function ensure_unused_space!(v::Vector{UInt8}, space::UInt)
+    us = unused_space(v)
+    us % Int ≥ space && return nothing
+    return @noinline add_space_with_overallocation!(v, space - us)
 end
 
 Base.close(::VecWriter) = nothing
@@ -73,7 +135,7 @@ Get the total size, in bytes, of data written to `io`. This includes previously 
 and data comitted by `consume` but not flushed.
 Types implementing `filesize` should also implement `seek`.
 """
-Base.filesize(x::VecWriter) = x.idx
+Base.filesize(x::VecWriter) = length(x.vec)
 
 """
     seek(io::AbstractBufWriter, offset::Int) -> io
@@ -95,69 +157,35 @@ function Base.seek(x::VecWriter, offset::Int)
     @boundscheck if !in(offset, 0:filesize(x))
         throw(IOError(IOErrorKinds.BadSeek))
     end
-    x.idx = offset + 1
+    unsafe_set_length!(x.vec, offset + 1)
     return x
 end
 
-Base.position(x::VecWriter) = x.idx - 1
+Base.position(x::VecWriter) = filesize(x)
 
-"""
-    sizehint!(x::VecWriter, n::Integer; shrink::Bool=false, exact::Bool=false)
+if isdefined(Base, :takestring!)
+    Base.takestring!(io::VecWriter) = String(io.vec)
+end
 
-Set the total buffer size (written plus unwritten) to at least `n`.
-If `shrink` is `false` (default) the existing size is larger than or equal to `n`,
-do nothing. If `shrink` is true, and the buffer length equal `n`, or `n` or more
-bytes has already be written to `x`, do nothing.
+## Optimised write implementations
+Base.write(io::VecWriter, x::UInt8) = push!(io.vec, x)
 
-Otherwise, re-allocate the buffer of `x`. If `exact` is `true` or `shrink` is `true`,
-resize the buffer to exactly `n`. Otherwise, possibly overallocate. 
-"""
-function Base.sizehint!(x::VecWriter, n::Integer; shrink::Bool = true, exact::Bool = false)
-    n = Int(n)::Int
-    mem = x.mem
-    memsize = if !shrink
-        length(mem) ≥ n && return x
-        exact ? n : overallocation_size(n)
-    else
-        (length(mem) == n) || (x.idx - 1 ≥ n) && return x
-        n
+function Base.write(io::VecWriter, mem::Union{String, SubString{String}, PlainMemory})
+    so = sizeof(mem)
+    buffer = get_nonempty_buffer(io, so)
+    GC.@preserve buffer mem begin
+        unsafe_copyto!(pointer(buffer), Ptr{UInt8}(pointer(mem)), so)
     end
-    return @noinline _reallocate!(x, memsize)
+    @inbounds consume(io, so)
+    return so
 end
 
-function _reallocate!(x::VecWriter, memsize::Int)
-    newmem = Memory{UInt8}(undef, memsize)
-    unsafe_copyto!(newmem, 1, x.mem, 1, min(x.idx - 1, memsize))
-    x.mem = newmem
-    return x
+function Base.write(io::VecWriter, x::PlainTypes)
+    buffer = get_nonempty_buffer(io, sizeof(x))
+    GC.@preserve buffer begin
+        p = Ptr{typeof(x)}(pointer(buffer))
+        unsafe_store!(p, x)
+    end
+    @inbounds consume(io, sizeof(x))
+    return sizeof(x)
 end
-
-
-"""
-    to_parts(x::VecWriter)::Tuple{Memory{UInt8}, Int}
-
-Return `(mem, i)`, the full memory backing `x`, and the number of bytes written to the memory.
-The first `i` bytes of the memory `mem` is filled, and corresponds to `get_data(x)`.
-
-Mutating `mem` may cause `x` to behave erratically, so this function should mostly be used
-when `x` is not used anymore.
-
-See also: [`get_data`](@ref)
-
-# Examples
-```jldoctest
-julia> vw = VecWriter(7);
-
-julia> write(vw, "abcde")
-5
-
-julia> (mem, i) = to_parts(vw);
-
-julia> (typeof(mem), length(mem))
-(Memory{UInt8}, 7)
-
-julia> mem[1:i] |> print
-UInt8[0x61, 0x62, 0x63, 0x64, 0x65]
-```
-"""
-to_parts(x::VecWriter) = (x.mem, x.idx - 1)

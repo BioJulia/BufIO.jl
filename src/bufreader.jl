@@ -48,7 +48,7 @@ function BufReader(io::IO, buffer_size::Int = 8192)
 end
 
 function get_buffer(x::BufReader)::ImmutableMemoryView{UInt8}
-    return ImmutableMemoryView(x.buffer)[x.start:x.stop]
+    return @inbounds ImmutableMemoryView(x.buffer)[x.start:x.stop]
 end
 
 function fill_buffer(x::BufReader)::Int
@@ -148,6 +148,9 @@ UInt8[]
 ```
 """
 function Base.seek(x::BufReader, position::Int)
+    if !in(position, 0:filesize(x.io))
+        throw(IOError(IOErrorKinds.BadSeek))
+    end
     x.start = 1
     x.stop = 0
     return seek(x.io, position)

@@ -7,7 +7,7 @@ Base.read(x::AbstractBufReader, ::Type{String}) = String(read(x))
 function Base.read(x::AbstractBufReader)
     v = UInt8[]
     while true
-        buf = get_nonempty_buffer(x)
+        buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
         isnothing(buf) && return v
         append!(v, buf)
         @inbounds consume(x, length(buf))
@@ -61,7 +61,7 @@ end
 function Base.unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
     n_total_read = 0
     while true
-        buf = get_nonempty_buffer(x)
+        buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
         isnothing(buf) && return n_total_read
         L = min(length(buf), n % Int)
         GC.@preserve buf begin
@@ -84,7 +84,7 @@ are available. In that case, it will attempt to get more bytes exactly once.
 If still no bytes are available, `io` is EOF, and the resulting vector is empty.
 """
 function Base.readavailable(x::AbstractBufReader)
-    buf = get_nonempty_buffer(x)
+    buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
     isnothing(buf) && return UInt8[]
     result = Vector(buf)
     @inbounds consume(x, length(buf))
@@ -98,7 +98,7 @@ Get the next `UInt8` in `io`, without advancing `io`, or throw an `IOError`
 containing `IOErrorKinds.EOF` if `io` is EOF.
 """
 function Base.peek(x::AbstractBufReader, ::Type{UInt8})
-    buffer = get_nonempty_buffer(x)
+    buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
     if buffer === nothing
         throw(IOError(IOErrorKinds.EOF))
     end
@@ -134,33 +134,43 @@ function Base.readbytes!(x::AbstractBufReader, b::AbstractVector{UInt8}, nb::Int
     Base.require_one_based_indexing(b)
     nb = Int(nb)::Int
     n_read = 0
+    initial_b_len = length(b)
     while n_read < nb
-        buffer = get_nonempty_buffer(x)
+        buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
         buffer === nothing && break
-        buffer = buffer[1:min(length(buffer), nb - n_read)]
-        if n_read >= length(b)
+        remaining_b_space = max(0, initial_b_len - n_read)
+        # Make sure to only append if `b` has already been filled, so it works
+        # correctly with `b` that cannot be resized.
+        if iszero(remaining_b_space)
+            buffer = buffer[1:min(length(buffer), nb - n_read)]
             append!(b, buffer)
         else
+            buffer = buffer[1:min(remaining_b_space, nb - n_read, length(buffer))]
             copyto!(b, n_read + 1, buffer, 1, length(buffer))
         end
-        n_read += length(buffer)
         @inbounds consume(x, length(buffer))
+        n_read += length(buffer)
     end
     return n_read
 end
 
 function Base.read!(x::AbstractBufReader, A::AbstractArray{UInt8})
     GC.@preserve A begin
-        p = Base.unsafe_convert(Ptr{UInt8}, A)
+        p = Base.cconvert(Ptr{UInt8}, A)
         unsafe_read(x, p, UInt(sizeof(A)))
     end
     return A
 end
 
 # delim is UInt8, if delimiter is not found, copies to end
-function Base.copyuntil(out::IO, from::AbstractBufReader, delim::UInt8; keep::Bool = false)
+function Base.copyuntil(
+        out::Union{IO, AbstractBufWriter},
+        from::AbstractBufReader,
+        delim::UInt8;
+        keep::Bool = false
+    )
     while true
-        buffer = get_nonempty_buffer(from)
+        buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
         buffer === nothing && return out
         pos = findfirst(==(delim), buffer)
         if pos === nothing
@@ -197,7 +207,7 @@ This function may throw an `IOerror` with `IOErrorKinds.BufferTooShort`, if all 
 """
 function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReader; keep::Bool = false)
     while true
-        buffer = get_nonempty_buffer(from)
+        buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
         buffer === nothing && return out
         # We can't copy over a buffer only containing \r, if !keep,
         # because we can't tell if the next byte is \n and we therefore
@@ -215,7 +225,7 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
             write(out, buffer)
             @inbounds consume(from, length(buffer))
         else
-            buf = buffer[1:pos]
+            buf = @inbounds buffer[1:pos]
             buf = keep ? buf : _chomp(buf)
             write(out, buf)
             @inbounds consume(from, pos)
@@ -231,7 +241,7 @@ end
 # If `x` doesn't contain `byte` until EOF, returned value is nothing.
 function buffer_until(x::AbstractBufReader, byte::UInt8)::Union{Int, HitBufferLimit, Nothing}
     scan_from = 1
-    buffer = get_nonempty_buffer(x)
+    buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
     isnothing(buffer) && return nothing
     while true
         pos = findnext(==(byte), buffer, scan_from)
@@ -243,7 +253,8 @@ function buffer_until(x::AbstractBufReader, byte::UInt8)::Union{Int, HitBufferLi
         elseif iszero(n_filled)
             return nothing
         else
-            buffer = get_buffer(x)
+            buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+            length(buffer) < scan_from && error("Invalid fill_buffer / get_buffer implementation")
         end
     end
     return # unreachable
@@ -255,7 +266,7 @@ end
 function Base.readline(x::AbstractBufReader; keep::Bool = false)
     v = UInt8[]
     while true
-        buffer = get_nonempty_buffer(x)
+        buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
         buffer === nothing && return String(v)
         pos = findfirst(==(0x0a), buffer)
         if pos === nothing
@@ -269,29 +280,39 @@ function Base.readline(x::AbstractBufReader; keep::Bool = false)
     end
     if !keep
         removed = false
-        if !isempty(v) && last(v) == 0x0a
+        if !isempty(v) && @inbounds(last(v)) == 0x0a
             removed = true
-            pop!(v)
+            @inbounds pop!(v)
         end
-        if removed && !isempty(v) && last(v) == 0x0d
-            pop!(v)
+        if removed && !isempty(v) && @inbounds(last(v)) == 0x0d
+            @inbounds pop!(v)
         end
     end
     return String(v)
 end
 
 function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
-    io = IOBuffer()
+    io = VecWriter()
     copyuntil(io, x, delim; keep)
-    return take!(io)
+    (mem, i) = to_parts(io)
+    # TODO: This should use the function Base.wrap, but this is not public as of Julia 1.12.
+    return Vector(MemoryView(mem)[1:i])
 end
 
 function Base.write(io::AbstractBufWriter, x::UInt8)
-    buffer = get_nonempty_buffer(io)
+    buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
     isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
     buffer[1] = x
     @inbounds consume(io, 1)
     return 1
+end
+
+function Base.write(io::AbstractBufWriter, x, xs...)
+    n_written = write(io, x)
+    for i in xs
+        n_written += write(io, i)
+    end
+    return n_written
 end
 
 function Base.write(io::AbstractBufWriter, mem::Union{String, SubString{String}, PlainMemory})
@@ -300,7 +321,7 @@ function Base.write(io::AbstractBufWriter, mem::Union{String, SubString{String},
     GC.@preserve mem begin
         src = Ptr{UInt8}(pointer(mem))
         while offset < so
-            buffer = get_nonempty_buffer(io)
+            buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
             isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
             isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
             mn = min(so - offset, length(buffer))
@@ -314,12 +335,11 @@ function Base.write(io::AbstractBufWriter, mem::Union{String, SubString{String},
 end
 
 function Base.write(io::AbstractBufWriter, x::PlainTypes)
-    buffer = get_buffer(io)
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
     # Get buffer at least the size of `x` to enable the fast path, if possible
     if length(buffer) < sizeof(x)
-        if !iszero(grow_buffer(io))
-            buffer = get_buffer(io)
-        end
+        grow_buffer(io)
+        buffer = get_buffer(io)
         length(buffer) < sizeof(x) && return _write_slowpath(io, x)
     end
     # Copy the bits in directly
@@ -331,14 +351,12 @@ function Base.write(io::AbstractBufWriter, x::PlainTypes)
     return sizeof(x)
 end
 
-Base.write(io::AbstractBufWriter, v::Union{Memory, Array}) = write(io, ImmutableMemoryView(v))
-
 @noinline function _write_slowpath(io::AbstractBufWriter, x::PlainTypes)
     # We serialize as little endian, so byteswap if machine is big endian
     u = htol(as_unsigned(x))
     n_written = 0
     while n_written < sizeof(u)
-        buffer = get_nonempty_buffer(io)
+        buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
         isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
         n_written_at_start = n_written
         for i in eachindex(buffer)
@@ -351,6 +369,8 @@ Base.write(io::AbstractBufWriter, v::Union{Memory, Array}) = write(io, Immutable
     end
     return sizeof(u)
 end
+
+Base.write(io::AbstractBufWriter, v::Union{Memory, Array}) = write(io, ImmutableMemoryView(v))
 
 as_unsigned(x::PlainTypes) = as_unsigned(x, Val{sizeof(x)}())
 as_unsigned(x, ::Val{1}) = reinterpret(UInt8, x)

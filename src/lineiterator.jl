@@ -6,7 +6,9 @@ end
 """
     line_views(x::AbstractBufReader; chomp::Bool=true)
 
-Create an efficient, stateful iterator of lines of `x`.
+Create an efficient iterator of lines of `x`.
+The returned views are `ImmutableMemoryView{UInt8}` views into `x`'s buffer, 
+and are invalidated when `x` is mutated or the line iterator is advanced.
 
 A line is defined as all data up to and
 including `\\n` (0x0a) or `\\r\\n` (0x0d 0x0a), or the remainder of the data in `io` if
@@ -17,8 +19,6 @@ The lines are iterated as `ImmutableMemoryView{UInt8}`. Use the package StringVi
 to turn them into `AbstractString`s. The `chomp` keyword (default: true), controls whether
 any trailing `\\r\\n` or `\\n` should be removed from the output.
 
-The returned views are views into `x`, and are invalidated when the line iterator is
-mutated.
 If `x` had a limited buffer size, and an entire line cannot be kept in the buffer, an
 `ArgumentError` is thrown.
 
