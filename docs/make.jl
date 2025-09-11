@@ -8,6 +8,8 @@ makedocs(;
     pages = [
         "BufIO" => "index.md",
         "Readers" => "readers.md",
+        "Writers" => "writers.md",
+        "Types" => "types.md",
         "API reference" => "reference.md",
     ],
     authors = "Jakob Nybo Nissen",

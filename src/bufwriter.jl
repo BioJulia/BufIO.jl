@@ -2,12 +2,30 @@
     BufWriter{T <: IO} <: AbstractBufWriter
     BufWriter(io::IO, [buffer_size::Int])::BufWriter
 
-Wrap an `IO` in a struct with its own buffer, giving it the `AbstractBufReader` interface.
-Errors when passed a buffer size of zero.
+Wrap an `IO` in a struct with a new buffer, giving it the `AbstractBufReader` interface.
 
-The `BufWriter` has an infinitely growable buffer, and will expand the buffer after flushing
-if more bytes are requested only grow the buffer if
-the buffer is full.
+The `BufWriter` has an infinitely growable buffer, and will expand the buffer if `grow_buffer`
+is called on it while it does not contain any data (as shown by `get_data`).
+
+Throw an `ArgumentError` if `buffer_size` is < 1.
+
+```jldoctest
+julia> io = IOBuffer(); wtr = BufWriter(io);
+
+julia> print(wtr, "Hello!")
+
+julia> write(wtr, [0x1234, 0x5678])
+4
+
+julia> read(io) # wtr not flushed
+UInt8[]
+
+julia> flush(wtr); seekstart(io); String(read(io))
+"Hello!4\\x12xV"
+
+julia> get_data(wtr)
+0-element MemoryViews.MutableMemoryView{UInt8}
+```
 """
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
     io::T
@@ -39,7 +57,7 @@ function get_data(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[1:(x.first_unused_index - 1)]
 end
 
-function fill_buffer(x::BufWriter)
+function grow_buffer(x::BufWriter)
     to_flush = x.first_unused_index - 1
     if !iszero(to_flush)
         used = @inbounds ImmutableMemoryView(x.buffer)[1:to_flush]
@@ -50,7 +68,7 @@ function fill_buffer(x::BufWriter)
 end
 
 function Base.flush(x::BufWriter)
-    fill_buffer(x)
+    grow_buffer(x)
     flush(x.io)
     return nothing
 end

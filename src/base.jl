@@ -16,18 +16,43 @@ function Base.read(x::AbstractBufReader)
 end
 
 """
+    read(io::AbstractBufReader, nb::Integer)
+
+Read at exactly `nb` bytes from `io`, or until end of file, and return the
+bytes read as a `Vector{UInt8}`.
+
+Throw an `ArgumentError` if `nb` is negative.
+"""
+function Base.read(x::AbstractBufReader, nb::Integer)
+    nb = Int(nb)::Int
+    nb < 0 && throw(ArgumentError("nb cannot be negative"))
+    v = UInt8[]
+    remaining = nb
+    while !iszero(remaining)
+        buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+        isnothing(buf) && return v
+        mn = min(length(buf), remaining)
+        buf = @inbounds buf[1:mn]
+        append!(v, buf)
+        @inbounds consume(x, mn)
+        remaining -= mn
+    end
+    return v
+end
+
+"""
     unsafe_read(io::AbstractBufReader, ref, nbytes::UInt)::Int
 
 Copy `nbytes` from `io` into `ref`, returning the number of bytes copied.
-If `io` reached end of file, stop early.
-`ref` is converted to a `Ptr{UInt8}` using `Base.cconvert(Ptr{UInt8}, ref)`
+If `io` reached end of file, stop at EOF.
+`ref` is converted to a pointer using `Base.cconvert(Ptr, ref)`
 
 Safety: The user must ensure that the resulting pointer from the `cconvert` is valid,
 and points to at least `nbytes` of memory.
 """
 function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
     GC.@preserve ref begin
-        ptr = Base.cconvert(Ptr{UInt8}, ref)::Ptr{UInt8}
+        ptr = Ptr{UInt8}(Base.cconvert(Ptr, ref)::Ptr)
         result = unsafe_read(x, ptr, n)
     end
     return result
@@ -142,7 +167,7 @@ function Base.copyuntil(out::IO, from::AbstractBufReader, delim::UInt8; keep::Bo
             write(out, buffer)
             @inbounds consume(from, length(buffer))
         else
-            write(out, buffer[1:pos - (!keep)])
+            write(out, buffer[1:(pos - (!keep))])
             @inbounds consume(from, pos)
             return out
         end
@@ -292,7 +317,7 @@ function Base.write(io::AbstractBufWriter, x::PlainTypes)
     buffer = get_buffer(io)
     # Get buffer at least the size of `x` to enable the fast path, if possible
     if length(buffer) < sizeof(x)
-        if !iszero(fill_buffer(io))
+        if !iszero(grow_buffer(io))
             buffer = get_buffer(io)
         end
         length(buffer) < sizeof(x) && return _write_slowpath(io, x)
@@ -305,6 +330,8 @@ function Base.write(io::AbstractBufWriter, x::PlainTypes)
     @inbounds consume(io, sizeof(x))
     return sizeof(x)
 end
+
+Base.write(io::AbstractBufWriter, v::Union{Memory, Array}) = write(io, ImmutableMemoryView(v))
 
 @noinline function _write_slowpath(io::AbstractBufWriter, x::PlainTypes)
     # We serialize as little endian, so byteswap if machine is big endian
@@ -333,4 +360,7 @@ as_unsigned(x, ::Val{8}) = reinterpret(UInt64, x)
 as_unsigned(x, ::Val{16}) = reinterpret(UInt128, x)
 
 Base.seekstart(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, 0)
+Base.seekend(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, filesize(x))
 
+Base.print(io::AbstractBufWriter, x) = show(io, x)
+Base.print(io::AbstractBufWriter, s::Union{String, SubString{String}}) = (write(io, s); nothing)

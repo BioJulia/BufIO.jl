@@ -81,18 +81,17 @@ end
 ```
 
 ```@docs; canonical=false
-get_buffer(::AbstractBufReader)
-fill_buffer(::AbstractBufReader)
+get_buffer
+fill_buffer
 consume
 ```
 
-## Higher-level interface
-`AbstractBufReader` implements most of the `Base.IO` interface. More on that later. They also have a few convenience functions:
+## Notable `AbstractReader` functions
+`AbstractBufReader` implements most of the `Base.IO` interface, see the section in the sidebar.
+They also have a few convenience functions:
 
 ```@docs; canonical=false
 get_nonempty_buffer(::AbstractBufReader)
 read_into!
 read_all!
 ```
-
-## 

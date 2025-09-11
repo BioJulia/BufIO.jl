@@ -22,8 +22,7 @@ mutated.
 If `x` had a limited buffer size, and an entire line cannot be kept in the buffer, an
 `ArgumentError` is thrown.
 
-The resulting iterator will not close `x` when done - `x` must be closed after
-the iterator is used.
+The resulting iterator will NOT close `x` when done, this must be handled by the caller.
 """
 function line_views(x::AbstractBufReader; chomp::Bool = true)
     return LineViewIterator{typeof(x)}(x, chomp)

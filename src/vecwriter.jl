@@ -7,14 +7,13 @@
 
 Create an `AbstractBufWriter` backed by a growable `Memory{UInt8}`.
 
-If passed, `len` is the initial buffer size, and must be at least 1 byte.
-It defaults to a small size.
+If passed, `len` is the initial buffer size, and must be at least 1 byte, else
+an `ArgumentError` is thrown. It defaults to a small size.
 
 Use the functions `get_data` or `to_parts` to obtain the data written to the
-`VecWriter`.
+`VecWriter`. `grow_buffer` will always reallocate the buffer.
 
-Functions `flush` and `close` do not affect the writer, and two-arg `get_buffer`
-will cause the buffer to be reallocated if not enough bytes are available.
+Functions `flush` and `close` do not affect the writer.
 
 ```jldoctest
 julia> vw = VecWriter();
@@ -57,28 +56,50 @@ function consume(x::VecWriter, n::Int)
     return x.idx += n
 end
 
-fill_buffer(::VecWriter) = 0
+function grow_buffer(io::VecWriter)
+    current_size = length(io.mem)
+    new_size = overallocation_size(max(64, current_size) % UInt)
+    _reallocate!(io, new_size)
+    return new_size - current_size
+end
+
 Base.close(::VecWriter) = nothing
 Base.flush(::VecWriter) = nothing
 
 """
-    seek(x::VecWriter, n::Integer)
+    filesize(x::AbstractBufWriter)::Int
 
-Set the number of previously written bytes to `n`.
-If `n` is smaller than the current number of written bytes `w`, keep only the first `n` bytes
-and discard the rest `w - n` bytes`.
-If `n` is larger, only the first `w` bytes are initialized, and the rest may contain arbitrary
-data.
-If `n` < 0, or `n` is larger than the current buffer size, throw an `IOError(IOErrorKinds.BadSeek)`
+Get the total size, in bytes, of data written to `io`. This includes previously flushed data,
+and data comitted by `consume` but not flushed.
+Types implementing `filesize` should also implement `seek`.
 """
-function Base.seek(x::VecWriter, n::Integer)
-    n = Int(n)::Int
-    @boundscheck if !in(n, 0:length(x.mem))
+Base.filesize(x::VecWriter) = x.idx
+
+"""
+    seek(io::AbstractBufWriter, offset::Int) -> io
+
+Seek `io` to the zero-based position `offset`.
+
+Valid values for `offset` are in `0:filesize(io)`, if `filesize` is defined.
+Seeking outside these bounds throws an `IOError` of kind `BadSeek`.
+
+If seeking to before the current position (as defined by `position`), data between
+the new and the previous position need not be changed, and the underlying file or IO
+need not immediately be truncated. However, new write operations should write (or
+overwrite) data at the new position.
+
+This method is not generically defined for `AbstractBufReader`. Implementors of `seek`
+should also define `filesize(io)` and `position(io)`
+"""
+function Base.seek(x::VecWriter, offset::Int)
+    @boundscheck if !in(offset, 0:filesize(x))
         throw(IOError(IOErrorKinds.BadSeek))
     end
-    x.idx = n + 1
-    return nothing
+    x.idx = offset + 1
+    return x
 end
+
+Base.position(x::VecWriter) = x.idx - 1
 
 """
     sizehint!(x::VecWriter, n::Integer; shrink::Bool=false, exact::Bool=false)

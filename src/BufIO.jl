@@ -1,5 +1,7 @@
 module BufIO
 
+# TODO: Decide on how seek should behave, document the method and check all implementations
+
 using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
 
 export AbstractBufReader,
@@ -15,6 +17,7 @@ export AbstractBufReader,
     get_data,
     get_nonempty_buffer,
     fill_buffer,
+    grow_buffer,
     consume,
     read_into!,
     read_all!,
@@ -34,16 +37,54 @@ module IOErrorKinds
 
     Enum indicating what error was thrown. The current list is non-exhaustive, and
     more may be added in future releases.
+    The integral value of these enums are subject to change in minor versions.
+
+    Current errors:
+    * `ConsumeBufferError`: Occurs when calling `consume` with a negative amount of bytes,
+      or with more bytes than `length(get_buffer(io))`
+    * `EOF`: Occurs when trying a reading operation on a file that has reached end-of-file
+    * `BufferTooShort`: Thrown by various functions that require a minimum buffer size, which
+      the `io` cannot provide. This should only be thrown if the buffer is unable to grow to
+      the required size, and not if e.g. the buffer does not expand because the io is EOF.
+    * `BadSeek`: An out-of-bounds seek operation was attempted
+    * `PermissionDenied`: Acces was denied to a system (filesystem, network, OS, etc.) resource
+    * `NotFound`: Resource was not found, e.g. no such file or directory
+    * `BrokenPipe`: The operation failed because a pipe was broken. This typically happens when
+       writing to stdout or stderr, which then gets closed.
+    * `AlreadyExists`: Resource (e.g. file) could not be created because it already exists
+    * `NotADirectory`: Resource is unexpectedly not a directory. E.g. a path contained a non-directory
+      file as an intermediate component.
+    * `IsADirectory`: Resource is a directory when a non-directory was expected
+    * `DirectoryNotEmpty`: Operation cannot succeed because it requires an empty directory
+    * `InvalidFileName`: File name was invalid for platform, e.g. too long name, or invalid characters.
     """
     @enum IOErrorKind::UInt8 begin
         ConsumeBufferError
-        EmptyBuffer
         BadSeek
         EOF
         BufferTooShort
+        PermissionDenied
+        NotFound
+        BrokenPipe
+        AlreadyExists
+        NotADirectory
+        IsADirectory
+        DirectoryNotEmpty
+        InvalidFileName
     end
 
-    public ConsumeBufferError, EmptyBuffer, BadSeek, EOF, BufferTooShort
+    public ConsumeBufferError,
+        BadSeek,
+        EOF,
+        BufferTooShort,
+        PermissionDenied
+    NotFound
+    BrokenPipe
+    AlreadyExists
+    NotADirectory
+    IsADirectory
+    DirectoryNotEmpty
+    InvalidFileName
 end
 
 using .IOErrorKinds: IOErrorKind
@@ -53,6 +94,24 @@ using .IOErrorKinds: IOErrorKind
 
 This type is thrown by errors of AbstractBufReader.
 They contain the `.kind::IOErrorKind` public property.
+
+See also: [`IOErrorKinds.IOErrorKind`](@ref)
+
+# Examples
+```jldoctest
+julia> rdr = CursorReader("some content");
+
+julia> try
+           seek(rdr, 500)
+       catch error
+           if error.kind == IOErrorKinds.BadSeek
+               println(stderr, "Seeking operation out of bounds")
+           else
+               rethrow()
+           end
+        end
+Seeking operation out of bounds
+```
 """
 struct IOError <: Exception
     kind::IOErrorKind
@@ -92,10 +151,11 @@ Subtypes `T` of this type should implement at least:
 * `Base.close(io::T)`
 
 # Extended help
+Subtypes may optionally define the following methods. See their docstring for `BufReader` / `BufWriter`
+for details of the implementation:
 
-* Methods of `Base.close` should make sure that calling `close` on an already-closed
-  object has no visible effects.
-* `seek(x::T, i::Integer)` should throw an `IOError` if `i` is out of bounds. `i` is zero-indexed.
+* `Base.seek`
+* `Base.filesize`
 
 Subtypes `T` of this type have implementations for many Base IO methods, but with more precisely
 specified semantics. See docstrings of the specific functions of interest.
@@ -121,7 +181,7 @@ That implies that, if the `io` is capable of flushing, after calling `flush` on 
 Subtypes `T` of this type should implement at least:
 
 * `get_buffer(io::T)`
-* `fill_buffer(io::T)`
+* `grow_buffer(io::T)`
 * `Base.close(io::T)`
 * `Base.flush(io::T)`
 * `consume(io::T, n::Int)`
@@ -146,18 +206,15 @@ Get the available bytes of `io`.
 
 Calling this function when the buffer is empty should not attempt to fill the buffer.
 To fill the buffer, call [`fill_buffer`](@ref).
-"""
-function get_buffer(::AbstractBufReader) end
 
-"""
     get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}
 
 Get the available mutable buffer of `io` that can be written to.
 
 Calling this function when the buffer is empty should not attempt to fill the buffer.
-To fill the buffer, call [`fill_buffer`](@ref).
+To increase the size of the buffer, call [`grow_buffer`](@ref).
 """
-function get_buffer(::AbstractBufWriter) end
+function get_buffer end
 
 """
     fill_buffer(io::AbstractBufReader)::Union{Int, Nothing}
@@ -182,28 +239,25 @@ This function should never return `nothing` if the buffer is empty.
 """
 function fill_buffer(::AbstractBufReader) end
 
+# TODO: Bad name. Need to signal that it may clear or expand the buffer.
 """
-    fill_buffer(io::AbstractBufWriter)::Int
+    grow_buffer(io::AbstractBufWriter)::Int
 
-Increase the amount of bytes in the writeable buffer of `io`, returning
-the number of bytes added. After calling `fill_buffer` and getting `n`,
+Increase the amount of bytes in the writeable buffer of `io` if possible, returning
+the number of bytes added. After calling `grow_buffer` and getting `n`,
 the buffer obtained by `get_buffer` should have `n` more bytes.
 
-This function may increase the buffer size by flushing buffered bytes to
-the underlying io, or by allocating a new buffer.
-
-If `io` can neither flush (e.g. because there is no data to flush, or no underlying
-IO object to flush io), not expand its buffer (e.g. because the type does not
-support expanding the buffer, or the buffer is already at maximum size), this function
-may return zero.
+* If there is data in the buffer of `io`, flush it to the underlying io if possible.
+* Else, if `io`'s buffer can be expanded, do so.
+* Else, return zero
 
 !!! warning
-    Idiomatically, users should not call `fill_buffer` when the buffer is not empty,
+    Idiomatically, users should not call `grow_buffer` when the buffer is not empty,
     because this allows `io` to control its own buffer size and do not force growing
-    the buffer. Calling `fill_buffer` on a nonempty buffer is only appropriate if, for
+    the buffer. Calling `grow_buffer` on a nonempty buffer is only appropriate if, for
     algorithmic reasons you need `io` to be able to contain a minimum amount of data.
 """
-function fill_buffer(::AbstractBufWriter) end
+function grow_buffer(::AbstractBufWriter) end
 
 """
     get_data(io::AbstractBufWriter)::MutableMemoryView{UInt8}
@@ -215,6 +269,9 @@ if there are more layers of buffering in the IO wrapped by `io`, however, the le
 of the buffer should give the number of bytes still stored in `io` itself.
 
 Mutating the returned buffer is allowed and should not cause `io` to malfunction.
+
+This function has no default implementation and methods are optionally added to subtypes
+of `AbstractBufWriter`
 """
 function get_data(::AbstractBufWriter) end
 
@@ -271,20 +328,20 @@ function read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 end
 
 """
-    read_all!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
+    read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 
-Read bytes into `dst` until either `dst` is filled or `x` is EOF, returning
+Read bytes into `dst` until either `dst` is filled or `io` is EOF, returning
 the number of bytes read.
 """
-function read_all!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
+function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
     n_total_read = 0
     while !isempty(dst)
-        buf = get_nonempty_buffer(x)
+        buf = get_nonempty_buffer(io)
         isnothing(buf) && return n_total_read
         n_read_here = copyto_start!(dst, buf)
         n_total_read += n_read_here
         dst = dst[(n_read_here + 1):end]
-        @inbounds consume(x, n_read_here)
+        @inbounds consume(io, n_read_here)
     end
     return n_total_read
 end
@@ -305,13 +362,13 @@ const PlainMemory = Union{map(T -> MemoryView{T}, PLAIN_TYPES)...}
     get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
 
 Get a buffer with at least one byte, if bytes are available.
-Otherwise, call `fill_buffer`, then get the buffer again.
+Otherwise, call `grow_buffer`, then get the buffer again.
 Returns `nothing` if the buffer is still empty.
 """
 function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
     buffer = get_buffer(x)
     isempty(buffer) || return buffer
-    fill_buffer(x)
+    grow_buffer(x)
     buffer = get_buffer(x)
     return isempty(buffer) ? nothing : buffer
 end

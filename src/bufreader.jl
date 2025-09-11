@@ -2,11 +2,28 @@
     BufReader{T <: IO} <: AbstractBufReader
     BufReader(io::IO, [buffer_size::Int])::BufReader
 
-Wrap an `IO` in a struct with its own buffer, giving it the `AbstractBufReader` interface.
-Errors when passed a buffer size of zero.
+Wrap an `IO` in a struct with a new buffer, giving it the `AbstractBufReader` interface.
 
 The `BufReader` has an infinitely growable buffer, and will only grow the buffer if
-the buffer is full.
+[`fill_buffer`](@ref) is called while its internal buffer is full.
+
+Throw an `ArgumentError` if `buffer_size` is less than 1.
+
+```jldoctest
+julia> rdr = BufReader(IOBuffer("Hello, world!\\nabc\\r\\ndef"));
+
+julia> get_buffer(rdr)
+0-element MemoryViews.ImmutableMemoryView{UInt8}
+
+julia> peek(rdr)
+0x48
+
+julia> readline(rdr)
+"Hello, world!"
+
+julia> String(readavailable(rdr))
+"abc\\r\\ndef"
+```
 """
 mutable struct BufReader{T <: IO} <: AbstractBufReader
     const io::T
@@ -100,6 +117,36 @@ function Base.position(x::BufReader)
     return res
 end
 
+"""
+    seek(io::AbstractBufReader, offset::Int) -> io
+
+Seek `io` to the zero-based position `offset`, if `io` supports seeking,
+and return `io`.
+When `offset === 0`, this is equivalent to `seekstart`.
+If `filesize(io)` is implemented, this is equivalent to `seekend(io)`.
+
+Valid offsets are `0:filesize(io)`, if `io` implements `filesize`. Seeking outside
+these bounds throws an `IOError` of kind `BadSeek`.
+
+This method is not generically defined for `AbstractBufReader`.
+
+```jldoctest
+julia> rdr = BufReader(IOBuffer("Hello, world!"));
+
+julia> String(read(rdr, 5))
+"Hello"
+
+julia> seek(rdr, 3);
+
+julia> String(read(rdr, 5))
+"lo, w"
+
+julia> seek(rdr, 13);
+
+julia> read(rdr)
+UInt8[]
+```
+"""
 function Base.seek(x::BufReader, position::Int)
     x.start = 1
     x.stop = 0
