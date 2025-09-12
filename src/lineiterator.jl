@@ -1,5 +1,5 @@
 struct LineViewIterator{T <: AbstractBufReader}
-    reader::AbstractBufReader
+    reader::T
     chomp::Bool
 end
 
