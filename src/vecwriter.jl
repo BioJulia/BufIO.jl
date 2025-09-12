@@ -63,7 +63,7 @@ end
 """
     get_nonempty_buffer(
         io::AbstractBufWriter, min_size::Int
-    )::MutableMemoryView{UInt8}
+    )::Union{Nothing, MutableMemoryView{UInt8}}
 
 Get a nonempty buffer of at least size `min_size`.
 

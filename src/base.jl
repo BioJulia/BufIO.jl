@@ -45,14 +45,14 @@ end
 
 Copy `nbytes` from `io` into `ref`, returning the number of bytes copied.
 If `io` reached end of file, stop at EOF.
-`ref` is converted to a pointer using `Base.cconvert(Ptr, ref)`
+`ref` is converted to a pointer using `Base.unsafe_convert(Ptr{UInt8}, Base.cconvert(Ptr, ref))`.
 
-Safety: The user must ensure that the resulting pointer from the `cconvert` is valid,
-and points to at least `nbytes` of memory.
+Safety: The user must ensure that the resulting pointer is valid,
+and points to at least `nbytes` of writeable memory.
 """
 function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
     GC.@preserve ref begin
-        ptr = Ptr{UInt8}(Base.cconvert(Ptr, ref)::Ptr)
+        ptr = Base.unsafe_convert(Ptr{UInt8}, Base.cconvert(Ptr, ref))::Ptr{UInt8}
         result = unsafe_read(x, ptr, n)
     end
     return result
@@ -154,10 +154,28 @@ function Base.readbytes!(x::AbstractBufReader, b::AbstractVector{UInt8}, nb::Int
     return n_read
 end
 
+"""
+    read(io::AbstractBufReader, A::AbstractArray{UInt8}) -> A
+
+Read from `io` into `A`, filling and returning it.
+If `io` reaches EOF before filling `A`, throw an `IOError` with `IOErrorKinds.EOF`.
+
+`A` is assumed to have `length(A)` number of contiguous, linear indices.
+
+See also: [`read_all!`](@ref), [`read_into!`](@ref)
+"""
 function Base.read!(x::AbstractBufReader, A::AbstractArray{UInt8})
-    GC.@preserve A begin
-        p = Base.cconvert(Ptr{UInt8}, A)
-        unsafe_read(x, p, UInt(sizeof(A)))
+    Ai = first(eachindex(IndexLinear(), A))
+    remaining = Int(length(A))::Int
+    while remaining > 0
+        buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
+        mn = min(remaining, length(buffer))
+        buffer = @inbounds buffer[1:mn]
+        copyto!(A, Ai, buffer, 1, mn)
+        @inbounds consume(x, mn)
+        Ai += mn
+        remaining -= mn
     end
     return A
 end
@@ -177,7 +195,8 @@ function Base.copyuntil(
             write(out, buffer)
             @inbounds consume(from, length(buffer))
         else
-            write(out, buffer[1:(pos - (!keep))])
+            to_write = @inbounds buffer[1:(pos - !keep)]
+            write(out, to_write)
             @inbounds consume(from, pos)
             return out
         end
@@ -294,9 +313,7 @@ end
 function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
     io = VecWriter()
     copyuntil(io, x, delim; keep)
-    (mem, i) = to_parts(io)
-    # TODO: This should use the function Base.wrap, but this is not public as of Julia 1.12.
-    return Vector(MemoryView(mem)[1:i])
+    return io.vec
 end
 
 function Base.write(io::AbstractBufWriter, x::UInt8)

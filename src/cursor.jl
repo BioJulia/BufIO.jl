@@ -33,7 +33,7 @@ end
 
 fill_buffer(::CursorReader) = 0
 
-get_buffer(x::CursorReader) = x.data[x.i:end]
+get_buffer(x::CursorReader) = @inbounds x.data[x.i:end]
 
 Base.position(x::CursorReader) = x.i - 1
 
@@ -61,6 +61,6 @@ Base.close(::CursorReader) = nothing
 function Base.seek(x::CursorReader, offset::Integer)
     offset = Int(offset)::Int
     in(offset, 0:filesize(x)) || throw(IOError(IOErrorKinds.BadSeek))
-    x.i = clamp(offset, 0, length(x.data)) + 1
+    x.i = offset + 1
     return x
 end

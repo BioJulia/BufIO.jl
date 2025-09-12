@@ -19,8 +19,7 @@ export AbstractBufReader,
     consume,
     read_into!,
     read_all!,
-    line_views,
-    to_parts
+    line_views
 
 public LineViewIterator
 
@@ -185,6 +184,7 @@ Subtypes `T` of this type should implement at least:
 
 They may optionally implement
 * `get_data`
+* `get_nonempty_buffer(io::T, ::Int)`
 
 # Extended help
 
@@ -227,7 +227,7 @@ Buffered readers which do not wrap another underlying IO, and therefore can't fi
 its buffer should return 0 unconditionally.
 This function should never return `nothing` if the buffer is empty.
 
-!!! warning
+!!! note
     Idiomatically, users should not call `fill_buffer` when the buffer is not empty,
     because doing so forces growing the buffer instead of letting `io` choose an optimal
     buffer size. Calling `fill_buffer` with a nonempty buffer is only appropriate if, for
@@ -247,7 +247,7 @@ the buffer obtained by `get_buffer` should have `n` more bytes.
 * Else, if `io`'s buffer can be expanded, do so.
 * Else, return zero
 
-!!! warning
+!!! note
     Idiomatically, users should not call `grow_buffer` when the buffer is not empty,
     because doing so forces growing the buffer instead of letting `io` choose an optimal
     buffer size. Calling `grow_buffer` with a nonempty buffer is only appropriate if, for
