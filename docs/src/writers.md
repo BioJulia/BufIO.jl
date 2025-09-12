@@ -7,15 +7,14 @@ end
 
 # `AbstractBufWriter`
 ## Core, low-level interface
-The core interface of `AbstractBufWriter` consists of the same three functions as `AbstractBufReader`, with analogous meaning. So, first familiarize yourself with that interface.
+Similar to `AbstractBufReader`, the core interface of `AbstractBufWriter` consists of three functions:
 
-The main differences between the reader and writer interface are:
-* `get_buffer(io)` returns a mutable view into the part of the buffer which is unused. Data is written to `io` by copying to the first bytes of the buffer, then calling `consume`.
-* `grow_buffer(io)` may get more space by flushing comitted data from the buffer to the underlying IO. It cannot return `nothing`.
-* `consume(io, n::Int)` signals that the first `n` bytes in the buffer are now "comitted" to `io`, and will not be returned from future calls to `get_buffer`.
+* `get_buffer(io)` returns a mutable view into the part of the buffer which is yet unused. Data is written to `io` by copying to the first bytes of the buffer, then calling `consume`.
+* `grow_buffer(io)` request to expand the buffer returned by future calls to `get_buffer`. This may happen by flushing data in the buffer or by reallocating a larger buffer
+* `consume(io, n::Int)` signals that the first `n` bytes in the buffer are written to `io`, and will therefore not be returned from future calls to `get_buffer`.
 
 ## Example: Writing `v::Vector{UInt8}` to an `AbstractBufWriter`
-There already is an existing method defined for `AbstractBufWriter` used when calling `write(io, v)`, but how would this be implemented in terms of the core primitives above?
+The method `write(::AbstractBufWriter, v::Vector{UInt8})` is already implemented, but it's illustrative to see how this be implemented in terms of the core primitives above.
 
 First, let's define it in terms of `ImmutableMemoryView`, and then forward the `Vector` method to the memory one.
 
@@ -37,6 +36,7 @@ function my_write(io::AbstractBufWriter, mem::ImmutableMemoryView{UInt8})::Int
             buffer = get_buffer(io)::MutableMemoryView{UInt8}
         end
         mn = min(length(mem), length(buffer))
+        @assert !iszero(mn)
         (to_write, mem) = @inbounds split_at(mem, mn + 1)
         @inbounds copyto!(@inbounds(buffer[1:mn]), to_write)
         # Mark the first `mn` bytes of the buffer as being committed, thereby
@@ -56,4 +56,5 @@ consume
 ## Notable `AbstractWriter` functions
 ```@docs; canonical=false
 get_data
+get_nonempty_buffer(::VecWriter, ::Int)
 ```

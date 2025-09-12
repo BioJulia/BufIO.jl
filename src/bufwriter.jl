@@ -57,7 +57,9 @@ function get_data(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[1:(x.first_unused_index - 1)]
 end
 
-function grow_buffer(x::BufWriter)
+# Flush to underlying IO, but do not flush that in turn.
+# Return the number of bytes flushed
+@inline function shallow_flush(x::BufWriter)::Int
     to_flush = x.first_unused_index - 1
     if !iszero(to_flush)
         used = @inbounds ImmutableMemoryView(x.buffer)[1:to_flush]
@@ -67,8 +69,22 @@ function grow_buffer(x::BufWriter)
     return to_flush
 end
 
+function grow_buffer(x::BufWriter)
+    flushed = shallow_flush(x)
+    return iszero(flushed) ? grow_buffer_slowpath(x) : flushed
+end
+
+@noinline function grow_buffer_slowpath(x::BufWriter)
+    # We know we have no data to flush
+    old_size = length(x.buffer)
+    new_size = overallocation_size(old_size % UInt)
+    new_memory = Memory{UInt8}(undef, new_size)
+    x.buffer = new_memory
+    return new_size - old_size
+end
+
 function Base.flush(x::BufWriter)
-    grow_buffer(x)
+    shallow_flush(x)
     flush(x.io)
     return nothing
 end

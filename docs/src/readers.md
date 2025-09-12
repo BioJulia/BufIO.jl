@@ -8,11 +8,11 @@ end
 # `AbstractBufReader`
 ## Core, low-level interface
 The core interface of an `io::AbstractBufReader` consists of three functions, that are to be used together:
-* `get_buffer(io)` returns the internal buffer with data to read. You read from the io by copying from the returned buffer
-* `fill_buffer(io)` attempts to append more bytes to the internal buffer
-* `consume(io, n::Int)` removes the first `n` bytes of the internal buffer
+* `get_buffer(io)` returns a view into the internal buffer with data ready to read. You read from the io by copying.
+* `fill_buffer(io)` attempts to append more bytes to the buffer returned by future calls to `get_buffer`
+* `consume(io, n::Int)` removes the first `n` bytes of the buffer
 
-While lots of higher-level convenience functions are also defined, all those ultimately rely on these three core functions.
+While lots of higher-level convenience functions are also defined, nearly all functionality is defined in terms of these three core functions.
 See the docstrings of these functions for details and edge cases.
 
 Let's see two use cases to demonstrate how this core interface is used.
@@ -47,13 +47,13 @@ function read_exact(io::AbstractBufReader, n::Int)
 end
 ```
 
-The code above may be simplified by using the convenience function `get_nonempty_buffer`.
+The code above may be simplified by using the convenience function [`get_nonempty_buffer`](@ref)
+or the higher level function [`read_all!`](@ref)
 
 ### Example: Reading a line without intermediate allocations
 This example is different, because to avoid allocations, we need an entire line to be available
 in the buffer of the io.
-
-Therefore, this is one of the rare cases where we may need to grow the buffer.
+Therefore, this is one of the rare cases where we may need to force `io` to grow its buffer.
 
 ```julia
 function get_line_view(io::AbstractBufReader)
@@ -64,13 +64,13 @@ function get_line_view(io::AbstractBufReader)
         if pos === nothing
             scan_from = length(buffer) + 1
             n_filled = fill_buffer(io)
-            # fill_buffer may return nothing if the buffer is not empty,
-            # and the buffer cannot be expanded further.
             if n_filled === nothing
+                # fill_buffer may return nothing if the buffer is not empty,
+                # and the buffer cannot be expanded further.
                 error("io could not buffer an entire line")
-            # This indicates EOF, so the line is defined as the rest of the
-            # content of `io`
             elseif iszero(n_filled)
+                # This indicates EOF, so the line is defined as the rest of the
+                # content of `io`
                 return buffer
             end
         else
@@ -80,6 +80,8 @@ function get_line_view(io::AbstractBufReader)
 end
 ```
 
+Functionality similar to the above is provided by the [`line_views`](@ref) iterator.
+
 ```@docs; canonical=false
 get_buffer
 fill_buffer
@@ -88,7 +90,7 @@ consume
 
 ## Notable `AbstractReader` functions
 `AbstractBufReader` implements most of the `Base.IO` interface, see the section in the sidebar.
-They also have a few convenience functions:
+They also have a few special convenience functions:
 
 ```@docs; canonical=false
 get_nonempty_buffer(::AbstractBufReader)

@@ -15,56 +15,19 @@ Compared to `Base.IO`, the interfaces in this package are generally:
 * Better specified, with more well-defined semantics
 * Free from slow fallback methods that trash your performance
 
-This package also provides a basic set of types which allows easy interoperation between `Base.IO` types the new buffered interface.
-
-## Example
-* Low-level example:
-```jldoctest
-io = IOBuffer("Hello,\nworld!\n") # some IO value
-reader = BufReader(io)
-fill_buffer(reader)
-
-# Access the buffer in a zero-copy fashion
-buffer = get_buffer(reader)
-data = UInt8[]
-
-# Copy data from buffer
-copy!(data, view(buffer, 1:5))
-println(String(data))
-
-# Data is still present in buffer
-println(read(reader, String))
-close(reader)
-
-# output
-
-Hello
-Hello,
-world!
-```
-
-* Higher level example:
-
-```jldoctest
-io = IOBuffer("Hello,\nworld!\n") # some IO value
-reader = BufReader(io)
-foreach(println, eachline(reader))
-close(reader)
-
-# output
-
-Hello,
-world!
-```
+This package also provides a basic set of types which allows easy interoperation between `Base.IO` types and the new buffered interfaces.
 
 ## Overview of content:
 * `AbstractBufReader`: A reader type that exposes its internal data as an immutable memory view of bytes
 * `AbstractBufWriter`: A writer type that allows writing to it by copying data to a mutable memory view of its internal buffer
-* `BufReader <: AbstractBufReader`: A type that wraps a `Base.IO` and a buffer
-* `BufWriter <: AbstractBufWriter`: A type that wraps a `Base.IO` and a buffer
-* `CursorReader <: AbstractBufReader`: Turn any byte memory into a stateful reader
-* `IOReader <: Base.IO`: A type that wraps an `AbstractBufReader` but provdes the `Base.IO` interface
+* `BufReader <: AbstractBufReader`: A type that wraps a `Base.IO` to provide the `AbstractBufReader` interface
+* `BufWriter <: AbstractBufWriter`: A type that wraps a `Base.IO` to provide the `AbstractBufWriter` interface
+* `CursorReader <: AbstractBufReader`: Wrap any contiguous, memory of bytes into a stateful reader
+* `IOReader <: Base.IO`: A type that wraps an `AbstractBufReader` and provides the `Base.IO` interface
 * `VecWriter <: AbstractBufWriter`: A faster and simpler analogue of `IOBuffer` used to construct data (e.g. strings) by writing to it
+
+## Examples
+See usage examples in the sidebar to the left
 
 ## Design notes and limitations
 #### Requires Julia 1.11

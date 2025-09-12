@@ -102,7 +102,7 @@ end
 
 function consume(x::BufReader, n::Int)
     existing_bytes = x.stop - x.start + 1
-    if (existing_bytes % UInt) < (n % UInt)
+    @boundscheck if (existing_bytes % UInt) < (n % UInt)
         throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
     x.start += n

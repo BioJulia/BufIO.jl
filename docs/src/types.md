@@ -5,7 +5,7 @@ DocTestSetup = quote
 end
 ```
 
-# Pre-defined types with BufIO interface
+# Pre-defined types
 
 ## BufReader
 ```@docs; canonical=false
