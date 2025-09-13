@@ -1,5 +1,5 @@
 # BufIO.jl
-[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://biojulia.github.io/BufIO.jl/latest/)
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://biojulia.dev/BufIO.jl/dev/)
 [![Latest Release](https://img.shields.io/github/release/BioJulia/BufIO.jl.svg)](https://github.com/BioJulia/BufIO.jl/releases/latest)
 
 
