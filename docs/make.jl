@@ -18,7 +18,7 @@ makedocs(;
 )
 
 deploydocs(;
-    repo = "github.com/jakobnissen/BufIO.jl.git",
+    repo = "github.com/BioJulia/BufIO.jl.git",
     push_preview = true,
     deps = nothing,
     make = nothing,

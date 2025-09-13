@@ -12,7 +12,7 @@ export AbstractBufReader,
     IOError,
     IOErrorKinds,
     get_buffer,
-    get_data,
+    get_unflushed,
     get_nonempty_buffer,
     fill_buffer,
     grow_buffer,
@@ -183,7 +183,7 @@ Subtypes `T` of this type should implement at least:
 * `consume(io::T, n::Int)`
 
 They may optionally implement
-* `get_data`
+* `get_unflushed(io::T)`
 * `get_nonempty_buffer(io::T, ::Int)`
 
 # Extended help
@@ -257,20 +257,22 @@ the buffer obtained by `get_buffer` should have `n` more bytes.
 function grow_buffer(::AbstractBufWriter) end
 
 """
-    get_data(io::AbstractBufWriter)::MutableMemoryView{UInt8}
+    get_unflushed(io::AbstractBufWriter)::MutableMemoryView{UInt8}
 
-Return a view into the buffered data already written to `io`, but not yet flushed
-to its underlying IO.
-Bytes not appearing in the buffer may not be entirely flushed (as in `Base.flush`)
-if there are more layers of buffering in the IO wrapped by `io`, however, the length
-of the buffer should give the number of bytes still stored in `io` itself.
+Return a view into the buffered data already written to `io` and `consume`d,
+but not yet flushed to its underlying IO.
 
-Mutating the returned buffer is allowed and should not cause `io` to malfunction.
+Bytes not appearing in the buffer may not be completely flushed
+if there are more layers of buffering in the IO wrapped by `io`. However, any bytes
+already consumed and not returned in `get_unflushed` should not be buffered in `io`.
+
+Mutating the returned buffer is allowed, and should not cause `io` to malfunction.
+When `io` flushes, the updated values in the buffer will be flushed.
 
 This function has no default implementation and methods are optionally added to subtypes
-of `AbstractBufWriter`
+of `AbstractBufWriter` that can fullfil the above restrictions.
 """
-function get_data(::AbstractBufWriter) end
+function get_unflushed(::AbstractBufWriter) end
 
 """
     consume(io::Union{AbstractBufReader, AbstractBufWriter}, n::Int)::Nothing

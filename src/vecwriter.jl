@@ -88,7 +88,7 @@ end
 
 get_nonempty_buffer(x::VecWriter) = get_nonempty_buffer(x, 1)
 
-get_data(x::VecWriter) = MemoryView(x.vec)
+get_unflushed(x::VecWriter) = MemoryView(x.vec)
 
 function consume(x::VecWriter, n::Int)
     vec = x.vec
@@ -107,7 +107,7 @@ function grow_buffer(io::VecWriter)
     return capacity(io.vec) - initial_capacity
 end
 
-# If C = Current capacity (get_data + get_buffer)
+# If C = Current capacity (get_unflushed + get_buffer)
 # Then makes sure new capacity is overallocation(C + additional).
 # Do this by zeroing offset and, if necessary, reallocating memory
 function add_space_with_overallocation!(vec::Vector{UInt8}, additional::UInt)

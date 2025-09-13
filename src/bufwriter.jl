@@ -5,7 +5,7 @@
 Wrap an `IO` in a struct with a new buffer, giving it the `AbstractBufWriter` interface.
 
 The `BufWriter` has an infinitely growable buffer, and will only expand the buffer if `grow_buffer`
-is called on it while it does not contain any data (as shown by `get_data`).
+is called on it while it does not contain any data (as shown by `get_unflushed`).
 
 Throw an `ArgumentError` if `buffer_size` is < 1.
 
@@ -23,7 +23,7 @@ UInt8[]
 julia> flush(wtr); seekstart(io); String(read(io))
 "Hello!4\\x12xV"
 
-julia> get_data(wtr)
+julia> get_unflushed(wtr)
 0-element MemoryViews.MutableMemoryView{UInt8}
 ```
 """
@@ -53,7 +53,7 @@ function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[x.first_unused_index:end]
 end
 
-function get_data(x::BufWriter)::MutableMemoryView{UInt8}
+function get_unflushed(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[1:(x.first_unused_index - 1)]
 end
 

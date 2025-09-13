@@ -1,6 +1,6 @@
 # BufIO.jl
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://biojulia.github.io/BufIO.jl/latest/)
-[![Latest Release](https://img.shields.io/github/release/jakobnissen/BinBencherBackend.jl.svg)](https://github.com/BioJulia/BufIO.jl/releases/latest)
+[![Latest Release](https://img.shields.io/github/release/BioJulia/BufIO.jl.svg)](https://github.com/BioJulia/BufIO.jl/releases/latest)
 
 
 BufIO is an alternative IO interface in Julia inspired by Rust, designed around exposing buffers to users for them to explicitly copying to and from.

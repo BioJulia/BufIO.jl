@@ -55,6 +55,6 @@ consume
 
 ## Notable `AbstractWriter` functions
 ```@docs; canonical=false
-get_data
+get_unflushed
 get_nonempty_buffer(::VecWriter, ::Int)
 ```

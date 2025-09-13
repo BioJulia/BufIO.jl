@@ -37,12 +37,12 @@ end
     @test length(buffer3) == 0
 end
 
-@testset "get_data" begin
+@testset "get_unflushed" begin
     io = IOBuffer()
     writer = BufWriter(io, 10)
 
     # Initially no data
-    data = get_data(writer)
+    data = get_unflushed(writer)
     @test data isa MutableMemoryView{UInt8}
     @test length(data) == 0
 
@@ -50,11 +50,11 @@ end
     buffer = get_buffer(writer)
     copyto!(buffer[1:5], "abcde")
     consume(writer, 5)
-    @test get_data(writer) == b"abcde"
+    @test get_unflushed(writer) == b"abcde"
 
     # After flushing
     flush(writer)
-    data3 = get_data(writer)
+    data3 = get_unflushed(writer)
     @test length(data3) == 0
 end
 
@@ -70,7 +70,7 @@ end
     # Consume remaining
     consume(writer, 7)
     @test isempty(get_buffer(writer))
-    @test length(get_data(writer)) == 10
+    @test length(get_unflushed(writer)) == 10
 
     # Test bounds checking - should error when consuming more than available
     writer2 = BufWriter(IOBuffer(), 5)
@@ -88,7 +88,7 @@ end
     # grow_buffer should flush when there's data
     n_grown = grow_buffer(writer)
     @test n_grown == 3  # bytes flushed
-    @test isempty(get_data(writer))
+    @test isempty(get_unflushed(writer))
     @test length(get_buffer(writer)) == 5
 
     # grow_buffer on empty buffer should expand
@@ -127,7 +127,7 @@ end
     # Write single byte
     n = write(writer, 0x42)
     @test n == 1
-    @test get_data(writer) == [0x42]
+    @test get_unflushed(writer) == [0x42]
 
     flush(writer)
     seekstart(io)
