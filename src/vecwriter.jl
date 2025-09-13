@@ -33,7 +33,12 @@ struct VecWriter <: AbstractBufWriter
 end
 
 get_ref(v::Vector) = Base.cconvert(Ptr, v)
-get_memory(v::Vector) = parent(get_ref(v))
+
+if hasmethod(parent, Tuple{MemoryRef})
+    get_memory(v::Vector) = parent(get_ref(v))
+else
+    get_memory(v::Vector) = get_ref(v).mem
+end
 
 # This is faster than Base's method because Base's doesn't
 # special-case zero. Also, this method does not handle pointer-ful
