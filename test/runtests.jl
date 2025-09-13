@@ -15,3 +15,7 @@ end
 @testset "BufReader" begin
     include("bufreader.jl")
 end
+
+@testset "BufReader" begin
+    include("bufwriter.jl")
+end

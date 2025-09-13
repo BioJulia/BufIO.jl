@@ -15,7 +15,7 @@ Base.close(x::GenericBufWriter) = close(x.x)
 struct GenericBufReader <: AbstractBufReader
     x::CursorReader
 
-    GenericBufReader(x) =  new(CursorReader(x))
+    GenericBufReader(x) = new(CursorReader(x))
 end
 
 BufIO.get_buffer(x::GenericBufReader) = get_buffer(x.x)
