@@ -82,8 +82,11 @@ flush their writes to an underlying IO.
 """
 function get_nonempty_buffer(x::VecWriter, min_size::Int)
     ensure_unused_space!(x.vec, max(min_size, 1) % UInt)
-    mem = MemoryView(get_memory(x.vec))
-    return @inbounds MemoryViews.truncate_start_nonempty(mem, first_unused_memindex(x.vec))
+    mem = get_memory(x.vec)
+    fst = first_unused_memindex(x.vec)
+    memref = @inbounds memoryref(mem, fst)
+    len = length(mem) - fst + 1
+    return MemoryViews.unsafe_from_parts(memref, len)
 end
 
 get_nonempty_buffer(x::VecWriter) = get_nonempty_buffer(x, 1)
@@ -126,8 +129,9 @@ end
 # Ensure unused space is at least `space` bytes. Will overallocate
 function ensure_unused_space!(v::Vector{UInt8}, space::UInt)
     us = unused_space(v)
-    us % Int ≥ space && return nothing
-    return @noinline add_space_with_overallocation!(v, space - us)
+    us % UInt ≥ space && return nothing
+    space_to_add = space - us
+    return @noinline add_space_with_overallocation!(v, space_to_add)
 end
 
 Base.close(::VecWriter) = nothing

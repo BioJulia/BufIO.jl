@@ -6,16 +6,15 @@ end
 ```
 
 # BufIO.jl
-BufIO is an alternative IO interface in Julia inspired by Rust, designed around exposing buffers to users in order to explicitly copy bytes to and from them.
-Compared to `Base.IO`, the interfaces in this package are generally:
+BufIO provides new and improved I/O interfaces for Julia inspired by Rust, and designed around exposing buffers to users in order to explicitly copy bytes to and from them. Compared to the `Base.IO` interface, the new interfaces in this package are:
 
 * Lower level
 * Faster
 * Easier to reason about
 * Better specified, with more well-defined semantics
-* Free from slow fallback methods that trash your performance
+* Free from slow fallback methods that silently trash your performance
 
-This package also provides a basic set of types which allows easy interoperation between `Base.IO` types and the new buffered interfaces.
+Beside the new interfaces, BufIO also provides a small set of basic types to make use of the new interface, and/or allow easy interoperation between `Base.IO` types and the new buffered interfaces.
 
 ## Overview of content:
 * `AbstractBufReader`: A reader type that exposes its internal data as an immutable memory view of bytes
@@ -24,7 +23,7 @@ This package also provides a basic set of types which allows easy interoperation
 * `BufWriter <: AbstractBufWriter`: A type that wraps a `Base.IO` to provide the `AbstractBufWriter` interface
 * `CursorReader <: AbstractBufReader`: Wrap any contiguous, memory of bytes into a stateful reader
 * `IOReader <: Base.IO`: A type that wraps an `AbstractBufReader` and provides the `Base.IO` interface
-* `VecWriter <: AbstractBufWriter`: A faster and simpler analogue of `IOBuffer` used to construct data (e.g. strings) by writing to it
+* `VecWriter <: AbstractBufWriter`: A faster and simpler alternative to IOBuffer usable e.g. to build strings.
 
 ## Examples
 See usage examples in the sidebar to the left

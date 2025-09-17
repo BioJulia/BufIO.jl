@@ -17,6 +17,8 @@ export AbstractBufReader,
     fill_buffer,
     grow_buffer,
     consume,
+    shallow_flush,
+    resize_buffer,
     read_into!,
     read_all!,
     line_views
@@ -200,14 +202,16 @@ abstract type AbstractBufWriter end
 
 Get the available bytes of `io`.
 
-Calling this function when the buffer is empty should not attempt to fill the buffer.
+Calling this function when the buffer is empty should do actual system I/O, and in particular
+should not attempt to fill the buffer.
 To fill the buffer, call [`fill_buffer`](@ref).
 
     get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}
 
 Get the available mutable buffer of `io` that can be written to.
 
-Calling this function when the buffer is empty should not attempt to fill the buffer.
+Calling this function should do actual system I/O, and in particular
+should not attempt to flush data from the buffer.
 To increase the size of the buffer, call [`grow_buffer`](@ref).
 """
 function get_buffer end
@@ -339,7 +343,7 @@ function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
         isnothing(buf) && return n_total_read
         n_read_here = copyto_start!(dst, buf)
         n_total_read += n_read_here
-        dst = dst[(n_read_here + 1):end]
+        dst = @inbounds dst[(n_read_here + 1):end]
         @inbounds consume(io, n_read_here)
     end
     return n_total_read

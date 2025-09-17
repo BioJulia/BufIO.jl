@@ -57,9 +57,31 @@ function get_unflushed(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[1:(x.first_unused_index - 1)]
 end
 
-# Flush to underlying IO, but do not flush that in turn.
-# Return the number of bytes flushed
-@inline function shallow_flush(x::BufWriter)::Int
+"""
+    shallow_flush(io::AbstractBufWriter)::Int
+
+Clear the buffer(s) of `io` by writing to the underlying I/O, but do not
+flush the underlying I/O.
+Return the number of bytes flushed.
+
+```jldoctest
+julia> io = IOBuffer();
+
+julia> wtr = BufWriter(io);
+
+julia> write(wtr, "hello!");
+
+julia> take!(io)
+UInt8[]
+
+julia> shallow_flush(wtr)
+6
+
+julia> String(take!(io))
+"hello"
+```
+"""
+function shallow_flush(x::BufWriter)::Int
     to_flush = x.first_unused_index - 1
     if !iszero(to_flush)
         used = @inbounds ImmutableMemoryView(x.buffer)[1:to_flush]
@@ -70,7 +92,7 @@ end
 end
 
 function grow_buffer(x::BufWriter)
-    flushed = shallow_flush(x)
+    flushed = @inline shallow_flush(x)
     return iszero(flushed) ? grow_buffer_slowpath(x) : flushed
 end
 
@@ -83,8 +105,64 @@ end
     return new_size - old_size
 end
 
+"""
+    resize_buffer(io::Union{BufWriter, BufReader}, n::Int) -> io
+
+Resize the internal buffer of `io` to exactly `n` bytes.
+
+Throw an `ArgumentError` if `n` is less than 1, or lower than the currently
+number of buffered bytes (length of `get_unflushed` for `BufWriter`, length of
+`get_buffer` for `BufReader`).
+
+```jldoctest
+julia> w = BufWriter(IOBuffer());
+
+julia> write(w, "abc")
+3
+
+julia> length(get_buffer(resize_buffer(w, 5)))
+2
+
+julia> resize_buffer(w, 2)
+ERROR: ArgumentError: Buffer size smaller than current number of buffered bytes
+[...]
+
+julia> shallow_flush(w)
+3
+
+julia> resize_buffer(w, 2) === w
+true
+```
+"""
+function resize_buffer(x::BufWriter, n::Int)
+    length(x.buffer) == n && return x
+    n < 1 && throw(ArgumentError("Buffer size must be at least 1"))
+    n_buffered = x.first_unused_index - 1
+    if n < n_buffered
+        throw(ArgumentError("Buffer size smaller than current number of buffered bytes"))
+    end
+    new_buffer = Memory{UInt8}(undef, n)
+    if !iszero(n_buffered)
+        dst = @inbounds MemoryView(new_buffer)[1:n_buffered]
+        src = @inbounds MemoryView(x.buffer)[1:n_buffered]
+        @inbounds copyto!(dst, src)
+    end
+    x.buffer = new_buffer
+    return x
+end
+
+"""
+    flush(io::AbstractBufWriter)::Nothing
+
+Ensure that all intermediate buffered writes in `io` reaches their final destination.
+
+For writers with an underlying I/O, the underlying I/O should also be flushed.
+
+For writers without an underlying I/O, where the final writing destination is `io`
+ifself, the implementation may be simply `return nothing`.
+"""
 function Base.flush(x::BufWriter)
-    shallow_flush(x)
+    @inline shallow_flush(x)
     flush(x.io)
     return nothing
 end

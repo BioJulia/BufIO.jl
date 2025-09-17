@@ -109,6 +109,25 @@ function consume(x::BufReader, n::Int)
     return nothing
 end
 
+function resize_buffer(x::BufReader, n::Int)
+    length(x.buffer) == n && return x
+    n < 1 && throw(ArgumentError("Buffer size must be at least 1"))
+    n_buffered = x.stop - x.start + 1
+    if n < n_buffered
+        throw(ArgumentError("Buffer size smaller than current number of buffered bytes"))
+    end
+    new_buffer = Memory{UInt8}(undef, n)
+    if !iszero(n_buffered)
+        dst = @inbounds MemoryView(new_buffer)[1:n_buffered]
+        src = @inbounds MemoryView(x.buffer)[x.start:x.stop]
+        @inbounds copyto!(dst, src)
+    end
+    x.buffer = new_buffer
+    x.start = 1
+    x.stop = n_buffered
+    return x
+end
+
 Base.close(x::BufReader) = close(x.io)
 
 function Base.position(x::BufReader)

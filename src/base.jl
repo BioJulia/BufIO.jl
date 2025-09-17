@@ -254,6 +254,51 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
     return out # unreachable
 end
 
+"""
+    skip(io::AbstractBufReader, n::Integer)::Int
+
+Read `n` bytes from `io`, or until EOF, whichever comes first, and discard
+the read bytes. Return the number of bytes read.
+
+This function is defined generically for `AbstractBufReader` by reading bytes,
+not by seeking. Subtypes of `AbstractBufReader` may implement this using seeking.
+In order to skip a generic `AbstractBufReader` and guarantee seeking is used,
+use `seek(io, position(io) + n)`.
+
+Throws an `ArgumentError` if `n < 0`.
+
+See also: [`skip_exact`](@ref)
+"""
+function Base.skip(io::AbstractBufReader, n::Integer)
+    n < 0 && throw(ArgumentError("Cannot skip negative amount"))
+    n = UInt(n)::UInt
+    remaining = n
+    while !iszero(remaining)
+        buffer = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
+        iszero(buffer) && break
+        mn = min(length(buffer) % UInt, remaining) % Int
+        @inbounds consume(io, mn)
+        remaining -= mn
+    end
+    return (n - remaining) % Int
+end
+
+"""
+    skip_exact(io::AbstractBufReader, n::Integer)::Nothing
+
+Like `skip`, but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes could
+not be skipped.
+
+See also: [`skip`](@ref)
+"""
+function skip_exact(io::AbstractBufReader, n::Integer)
+    n < 0 && throw(ArgumentError("Cannot skip negative amount"))
+    n = UInt(n)::UInt
+    skipped = UInt(skip(io, n))
+    skipped == n || throw(IOError(IOErrorKinds.EOF))
+    return nothing
+end
+
 
 # Fill buffer of `x` until it contains a `byte`, then return the index
 # in the buffer of that byte.
