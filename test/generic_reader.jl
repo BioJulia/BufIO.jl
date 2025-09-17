@@ -1,3 +1,51 @@
+@testset "read_into!" begin
+    io = GenericBufReader([0x01, 0x02, 0x03, 0x04, 0x05])
+    v = MemoryView(collect(0x06:0x08))
+    @test read_into!(io, v) == 3
+    @test v == 1:3
+    @test read_into!(io, v) == 2
+    @test v == [4, 5, 3]
+    @test eof(io)
+
+    # Empty io
+    io = GenericBufReader(UInt8[])
+    v = MemoryView(collect(0x06:0x09))
+    @test iszero(read_into!(io, v))
+    @test v == 6:9
+
+    # Empty v
+    io = GenericBufReader([0x01, 0x02, 0x03, 0x04, 0x05])
+    v = MemoryView(collect(0x06:0x05))
+    @test iszero(read_into!(io, v))
+    @test isempty(v)
+    @test read(io) == 1:5
+
+    # With partial buffering
+    io = BufReader(IOBuffer("hello world"), 3)
+    v = MemoryView(collect(0x01:0x08))
+    @test read_into!(io, v) == 3
+    @test v == b"hel\4\5\6\7\x8"
+    @test read_into!(io, v) == 3
+    @test v == b"lo \4\5\6\7\x8"
+    resize_buffer(io, 100)
+    @test read_into!(io, v) == 5
+    @test v == b"world\6\7\x8"
+end
+
+@testset "read_all!" begin
+    io = BufReader(IOBuffer("hello world"), 3)
+    v = MemoryView(collect(0x01:0x08))
+    @test read_all!(io, v) == 8
+    @test v == b"hello wo"
+    @test read_all!(io, v) == 3
+    @test v == b"rldlo wo"
+
+    io = BufReader(IOBuffer("hello world"), 3)
+    v = MemoryView(collect(0x01:0x0f))
+    @test read_all!(io, v) == 11
+    @test v == UInt8[b"hello world"; [12, 13, 14, 15]]
+end
+
 @testset "read(::T, UInt8)" begin
     io = GenericBufReader("abcde")
     @test [read(io, UInt8) for i in 1:5] == b"abcde"

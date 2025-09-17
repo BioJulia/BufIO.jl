@@ -19,3 +19,11 @@ end
 @testset "BufReader" begin
     include("bufwriter.jl")
 end
+
+@testset "CursorReader" begin
+    include("cursor.jl")
+end
+
+@testset "LineIterator" begin
+    include("lineiterator.jl")
+end
