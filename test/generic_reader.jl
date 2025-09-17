@@ -46,6 +46,16 @@ end
     @test v == UInt8[b"hello world"; [12, 13, 14, 15]]
 end
 
+@testset "bytesavailable" begin
+    @test bytesavailable(CursorReader("abcde")) == 5
+    @test bytesavailable(CursorReader("")) == 0
+
+    io = BufReader(IOBuffer("abcdefghij"))
+    @test bytesavailable(io) == 0
+    fill_buffer(io)
+    @test bytesavailable(io) == 10
+end
+
 @testset "read(::T, UInt8)" begin
     io = GenericBufReader("abcde")
     @test [read(io, UInt8) for i in 1:5] == b"abcde"

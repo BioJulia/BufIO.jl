@@ -30,6 +30,10 @@ julia> String(vw.vec)
 """
 struct VecWriter <: AbstractBufWriter
     vec::Vector{UInt8}
+
+    # Suppress the default constructor that calls `convert`, since we don't
+    # want to copy the input vector if the type is wrong
+    VecWriter(vec::Vector{UInt8}) = new(vec)
 end
 
 get_ref(v::Vector) = Base.cconvert(Ptr, v)
@@ -166,7 +170,7 @@ function Base.seek(x::VecWriter, offset::Int)
     @boundscheck if !in(offset, 0:filesize(x))
         throw(IOError(IOErrorKinds.BadSeek))
     end
-    unsafe_set_length!(x.vec, offset + 1)
+    unsafe_set_length!(x.vec, offset)
     return x
 end
 

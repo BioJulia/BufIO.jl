@@ -124,12 +124,12 @@ function _chomp(x::ImmutableMemoryView{UInt8})::ImmutableMemoryView{UInt8}
     len = if isempty(x)
         0
     else
-        has_lf = x[end] == 0x0a
+        has_lf = @inbounds(x[end]) == 0x0a
         two_bytes = length(x) > 1
-        has_cr = has_lf & two_bytes & (x[length(x) - two_bytes] == 0x0d)
+        has_cr = has_lf & two_bytes & (@inbounds(x[length(x) - two_bytes]) == 0x0d)
         length(x) - (has_lf + has_cr)
     end
-    return x[1:len]
+    @inbounds return x[1:len]
 end
 
 

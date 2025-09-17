@@ -80,6 +80,8 @@ Clear the buffer(s) of `io` by writing to the underlying I/O, but do not
 flush the underlying I/O.
 Return the number of bytes flushed.
 
+This function is not generically defined for `AbstractBufReader`.
+
 ```jldoctest
 julia> io = IOBuffer();
 

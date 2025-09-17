@@ -226,3 +226,44 @@ end
     @test data[1:15] == 1:15
     @test reinterpret(Float64, data[16:23]) == [1.2443]
 end
+
+@testset "resize_buffer" begin
+    io = IOBuffer()
+    writer = BufWriter(io, 10)
+    mem = parent(get_buffer(writer))
+    write(writer, "abcdefghijklmnopq")
+    @test parent(get_buffer(writer)) === mem
+
+    # Resize to same size does nothing
+    resize_buffer(writer, 10)
+    @test parent(get_buffer(writer)) === mem
+
+    # Resize larger
+    resize_buffer(writer, 12)
+    newmem = parent(get_buffer(writer))
+    @test length(newmem) == 12
+    @test newmem !== mem
+    shallow_flush(writer)
+
+    # Resize smaller
+    resize_buffer(writer, 6)
+    newmem = parent(get_buffer(writer))
+    @test length(newmem) == 6
+    @test newmem !== mem
+
+    # Can't resize to zero or negative
+    @test_throws ArgumentError resize_buffer(writer, 0)
+    @test_throws ArgumentError resize_buffer(writer, -1)
+
+    # Can't resize to lower than written size
+    io = IOBuffer()
+    writer = BufWriter(io, 10)
+    write(writer, "abcd")
+    resize_buffer(writer, 4)
+    @test length(parent(get_buffer(writer))) == 4
+    @test length(get_unflushed(writer)) == 4
+    @test_throws ArgumentError resize_buffer(writer, 3)
+    shallow_flush(writer)
+    resize_buffer(writer, 3)
+    @test length(parent(get_buffer(writer))) == 3
+end

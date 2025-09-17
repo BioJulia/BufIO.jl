@@ -16,7 +16,7 @@ end
     include("bufreader.jl")
 end
 
-@testset "BufReader" begin
+@testset "BufWriter" begin
     include("bufwriter.jl")
 end
 
@@ -26,4 +26,8 @@ end
 
 @testset "LineIterator" begin
     include("lineiterator.jl")
+end
+
+@testset "VecWriter" begin
+    include("vecwriter.jl")
 end
