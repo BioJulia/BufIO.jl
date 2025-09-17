@@ -288,3 +288,261 @@ end
     seekstart(io_dst7)
     @test read(io_dst7) == [0x01, 0x02]
 end
+
+@testset "copyline" begin
+    @testset "Base.copyline basic functionality" begin
+        # Test basic line copying with \n
+        input_io = IOBuffer("hello\nworld\ntest")
+        reader = BufReader(input_io)
+        output_io = IOBuffer()
+
+        result = copyline(output_io, reader)
+        @test result === output_io
+        @test String(take!(output_io)) == "hello"
+        @test String(read(reader)) == "world\ntest"
+
+        # Test line copying with \r\n
+        input_io2 = IOBuffer("line1\r\nline2\r\n")
+        reader2 = BufReader(input_io2)
+        output_io2 = IOBuffer()
+
+        copyline(output_io2, reader2)
+        @test String(take!(output_io2)) == "line1"
+        @test String(read(reader2)) == "line2\r\n"
+
+        # Test copying last line without newline
+        input_io3 = IOBuffer("first\nlast")
+        reader3 = BufReader(input_io3)
+        output_io3 = IOBuffer()
+
+        # Skip first line
+        copyline(output_io3, reader3)
+        take!(output_io3)  # Clear output
+
+        # Copy last line
+        copyline(output_io3, reader3)
+        @test String(take!(output_io3)) == "last"
+        @test eof(reader3)
+
+        # Test keeping \n
+        input_io = IOBuffer("hello\nworld")
+        reader = BufReader(input_io)
+        output_io = IOBuffer()
+
+        copyline(output_io, reader; keep = true)
+        @test String(take!(output_io)) == "hello\n"
+        @test String(read(reader)) == "world"
+
+        # Test keeping \r\n
+        input_io2 = IOBuffer("line1\r\nline2")
+        reader2 = BufReader(input_io2)
+        output_io2 = IOBuffer()
+
+        copyline(output_io2, reader2; keep = true)
+        @test String(take!(output_io2)) == "line1\r\n"
+        @test String(read(reader2)) == "line2"
+    end
+
+    @testset "Base.copyline buffer boundary cases" begin
+        # Test line spanning multiple buffer fills
+        long_line = "a"^100 * "\n" * "b"^50
+        input_io = IOBuffer(long_line)
+        reader = BufReader(input_io, 10)  # Small buffer to force multiple fills
+        output_io = IOBuffer()
+
+        copyline(output_io, reader)
+        @test String(take!(output_io)) == "a"^100
+        @test String(read(reader)) == "b"^50
+
+        # Test \r\n spanning buffer boundary
+        # Put \r at end of one buffer, \n at start of next
+        data = "x"^9 * "\r\n" * "after"
+        input_io2 = IOBuffer(data)
+        reader2 = BufReader(input_io2, 10)
+        output_io2 = IOBuffer()
+
+        copyline(output_io2, reader2; keep = false)
+        @test String(take!(output_io2)) == "x"^9
+        @test String(read(reader2)) == "after"
+
+        # Test with keep=true
+        input_io3 = IOBuffer(data)
+        reader3 = BufReader(input_io3, 10)
+        output_io3 = IOBuffer()
+
+        copyline(output_io3, reader3; keep = true)
+        @test String(take!(output_io3)) == "x"^9 * "\r\n"
+        @test String(read(reader3)) == "after"
+
+        # Test reader with only \r\n
+        input_io3 = IOBuffer("\r\n")
+        reader3 = BufReader(input_io3)
+        output_io3 = IOBuffer()
+
+        copyline(output_io3, reader3; keep = false)
+        @test String(take!(output_io3)) == ""
+        @test eof(reader3)
+
+        # Test with keep=true
+        input_io4 = IOBuffer("\r\n")
+        reader4 = BufReader(input_io4)
+        output_io4 = IOBuffer()
+
+        copyline(output_io4, reader4; keep = true)
+        @test String(take!(output_io4)) == "\r\n"
+        @test eof(reader4)
+    end
+end
+
+@testset "skip" begin
+    # Test basic skipping
+    reader = CursorReader("hello world")
+    n_skipped = skip(reader, 5)
+    @test n_skipped == 5
+    @test position(reader) == 5
+    @test String(read(reader)) == " world"
+
+    # Test skipping more than available
+    reader2 = CursorReader("abc")
+    n_skipped2 = skip(reader2, 10)
+    @test n_skipped2 == 3  # Only 3 bytes available
+    @test eof(reader2)
+    @test read(reader2) == UInt8[]
+
+    # Test skipping zero bytes
+    reader3 = CursorReader("test")
+    n_skipped3 = skip(reader3, 0)
+    @test n_skipped3 == 0
+    @test position(reader3) == 0
+    @test String(read(reader3)) == "test"
+
+    # Test skipping from middle of reader
+    reader4 = CursorReader("abcdefgh")
+    read(reader4, 3)  # Read "abc", now at position 3
+    n_skipped4 = skip(reader4, 2)
+    @test n_skipped4 == 2
+    @test position(reader4) == 5
+    @test String(read(reader4)) == "fgh"
+
+    # Test skipping all remaining bytes
+    reader5 = CursorReader("123456")
+    read(reader5, 2)  # Read "12", now at position 2
+    n_skipped5 = skip(reader5, 4)
+    @test n_skipped5 == 4
+    @test eof(reader5)
+
+    # Test skipping from empty reader
+    reader6 = CursorReader("")
+    n_skipped6 = skip(reader6, 5)
+    @test n_skipped6 == 0
+    @test eof(reader6)
+
+    @testset "Base.skip error conditions" begin
+        # Test negative skip amount with CursorReader
+        reader = CursorReader("test")
+        @test_throws ArgumentError skip(reader, -1)
+        @test_throws ArgumentError skip(reader, -10)
+
+        # Test negative skip amount with BufReader
+        io = IOBuffer("test")
+        reader2 = BufReader(io)
+        @test_throws ArgumentError skip(reader2, -1)
+        @test_throws ArgumentError skip(reader2, -10)
+
+        # Verify error messages contain expected text
+        try
+            skip(CursorReader("test"), -5)
+            error()
+        catch e
+            @test e isa ArgumentError
+        end
+    end
+
+    @testset "skip edge cases" begin
+        # Test skip with exactly buffer-sized chunks
+        io = IOBuffer("12345678")  # 8 bytes
+        reader = BufReader(io, 4)   # Buffer size 4
+        n1 = skip(reader, 4)        # Skip exactly buffer size
+        @test n1 == 4
+        @test String(read(reader)) == "5678"
+
+        # Test large skip amounts
+        data = "x"^1000  # 1000 bytes
+        reader3 = CursorReader(data)
+        n2 = skip(reader3, 500)
+        @test n2 == 500
+        @test position(reader3) == 500
+    end
+end
+
+@testset "skip_exact" begin
+    # Test skipping exact amount available
+    io = IOBuffer("hello world")
+    reader = BufReader(io)
+    skip_exact(reader, 5)
+    @test String(read(reader)) == " world"
+
+    # Test skipping zero bytes
+    io2 = IOBuffer("test")
+    reader2 = BufReader(io2)
+    skip_exact(reader2, 0)
+    @test String(read(reader2)) == "test"
+
+    # Test skipping across buffer boundaries
+    io3 = IOBuffer("abcdefghijklmnop")
+    reader3 = BufReader(io3, 4)  # Small buffer to force multiple reads
+    skip_exact(reader3, 8)
+    @test String(read(reader3)) == "ijklmnop"
+
+    # Test skipping all bytes
+    io4 = IOBuffer("123")
+    reader4 = BufReader(io4)
+    skip_exact(reader4, 3)
+    @test eof(reader4)
+
+    # Test skipping with very small buffer
+    io5 = IOBuffer("abcdefghijk")
+    reader5 = BufReader(io5, 1)
+    skip_exact(reader5, 7)
+    @test String(read(reader5)) == "hijk"
+
+    # Test skipping from partially read buffer
+    io6 = IOBuffer("0123456789")
+    reader6 = BufReader(io6, 5)
+    read(reader6, 3)  # Read first 3 bytes
+    skip_exact(reader6, 4)  # Skip next 4
+    @test String(read(reader6)) == "789"
+
+    @testset "skip_exact error conditions" begin
+        # Test skipping more than available with CursorReader
+        reader = CursorReader("abc")
+        @test_throws IOError skip_exact(reader, 5)
+
+        # Verify it's EOF error
+        try
+            skip_exact(CursorReader("ab"), 3)
+            @test false  # Should not reach here
+        catch e
+            @test e isa IOError
+            @test e.kind == IOErrorKinds.EOF
+        end
+
+        # Test skipping more than available with BufReader
+        io = IOBuffer("xyz")
+        reader2 = BufReader(io)
+        @test_throws IOError skip_exact(reader2, 10)
+
+        # Test negative skip amount
+        reader3 = CursorReader("test")
+        @test_throws ArgumentError skip_exact(reader3, -1)
+
+        io3 = IOBuffer("")
+        reader6 = BufReader(io3)
+        @test_throws IOError skip_exact(reader6, 1)
+
+        # Test partial skip followed by skip_exact failure
+        reader7 = CursorReader("hello")
+        skip(reader7, 3)  # Skip "hel"
+        @test_throws IOError skip_exact(reader7, 5)  # Try to skip 5 more, only 2 available
+    end
+end

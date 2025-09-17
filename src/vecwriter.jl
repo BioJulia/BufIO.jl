@@ -188,13 +188,3 @@ function Base.write(io::VecWriter, mem::Union{String, SubString{String}, PlainMe
     @inbounds consume(io, so)
     return so
 end
-
-function Base.write(io::VecWriter, x::PlainTypes)
-    buffer = get_nonempty_buffer(io, sizeof(x))
-    GC.@preserve buffer begin
-        p = Ptr{typeof(x)}(pointer(buffer))
-        unsafe_store!(p, x)
-    end
-    @inbounds consume(io, sizeof(x))
-    return sizeof(x)
-end

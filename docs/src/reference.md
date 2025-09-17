@@ -18,4 +18,5 @@ Base.filesize(::CursorReader)
 Base.filesize(::VecWriter)
 Base.seek(::BufReader, ::Int)
 Base.seek(::VecWriter, ::Int)
+Base.skip(::AbstractBufReader, ::Int)
 ```

@@ -225,24 +225,38 @@ This function may throw an `IOerror` with `IOErrorKinds.BufferTooShort`, if all 
 * The only byte in the buffer is `\\r` (0x0d). 
 """
 function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReader; keep::Bool = false)
+    buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    buffer === nothing && return out
     while true
-        buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        buffer === nothing && return out
-        # We can't copy over a buffer only containing \r, if !keep,
-        # because we can't tell if the next byte is \n and we therefore
-        # should remove the \r.
-        # So, we fill extra bytes in, and error if we can't
-        if length(buffer) == 1 && !keep && first(buffer) == 0x0d
-            n_filled = fill_buffer(from)
-            if n_filled === nothing
-                throw(IOError(IOErrorKinds.BufferTooShort))
-            end
-            buffer = get_buffer(from)
-        end
         pos = findfirst(==(0x0a), buffer)
         if pos === nothing
-            write(out, buffer)
-            @inbounds consume(from, length(buffer))
+            to_write = if !keep && last(buffer) == 0x0d
+                # If the buffer ends with \r (0xd), and we remove the newlines, we need to
+                # conservatively not write the \r in case it's the beginning of an \r\n.
+                if length(buffer) == 1
+                    n_filled = fill_buffer(from)
+                    if n_filled === nothing
+                        # If the buffer is 1 byte long and cannot be expanded, we would never
+                        # progress because we would always conservatively avoid writing anything, so error
+                        throw(IOError(IOErrorKinds.BufferTooShort))
+                    elseif iszero(n_filled)
+                        # If nothing was filled, the stream ended at \r. Then, we can write everything out
+                        buffer
+                    else
+                        # Else, we need to fill in more bytes
+                        buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
+                        continue
+                    end
+                end
+                buffer[1:(end - 1)]
+            else
+                buffer
+            end
+            write(out, to_write)
+            @inbounds consume(from, length(to_write))
+            fill_buffer(from)
+            buffer = get_nonempty_buffer(from)
+            isnothing(buffer) && return out
         else
             buf = @inbounds buffer[1:pos]
             buf = keep ? buf : _chomp(buf)
@@ -275,7 +289,7 @@ function Base.skip(io::AbstractBufReader, n::Integer)
     remaining = n
     while !iszero(remaining)
         buffer = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        iszero(buffer) && break
+        isnothing(buffer) && break
         mn = min(length(buffer) % UInt, remaining) % Int
         @inbounds consume(io, mn)
         remaining -= mn
@@ -289,7 +303,7 @@ end
 Like `skip`, but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes could
 not be skipped.
 
-See also: [`skip`](@ref)
+See also: [`Base.skip`](@ref)
 """
 function skip_exact(io::AbstractBufReader, n::Integer)
     n < 0 && throw(ArgumentError("Cannot skip negative amount"))
@@ -397,12 +411,33 @@ function Base.write(io::AbstractBufWriter, mem::Union{String, SubString{String},
 end
 
 function Base.write(io::AbstractBufWriter, x::PlainTypes)
+    return if hasmethod(get_nonempty_buffer, Tuple{typeof(io), Int})
+        write_direct(io, x)
+    else
+        write_indirect(io, x)
+    end
+end
+
+function write_direct(io::AbstractBufWriter, x::PlainTypes)
+    buffer = get_nonempty_buffer(io, sizeof(x))
+    isnothing(buffer) && return _write_slowpath(io, x)
+    GC.@preserve buffer begin
+        p = Ptr{typeof(x)}(pointer(buffer))
+        unsafe_store!(p, x)
+    end
+    @inbounds consume(io, sizeof(x))
+    return sizeof(x)
+end
+
+function write_indirect(io::AbstractBufWriter, x::PlainTypes)
     buffer = get_buffer(io)::MutableMemoryView{UInt8}
-    # Get buffer at least the size of `x` to enable the fast path, if possible
-    if length(buffer) < sizeof(x)
+    buflen = length(buffer)
+    # Grow buffer to sizeof(x) to enable the fast path, if possible
+    while buflen < sizeof(x)
         grow_buffer(io)
         buffer = get_buffer(io)
-        length(buffer) < sizeof(x) && return _write_slowpath(io, x)
+        length(buffer) ≤ buflen && return _write_slowpath(io, x)
+        buflen = length(buffer)
     end
     # Copy the bits in directly
     GC.@preserve buffer begin

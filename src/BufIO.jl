@@ -21,7 +21,8 @@ export AbstractBufReader,
     resize_buffer,
     read_into!,
     read_all!,
-    line_views
+    line_views,
+    skip_exact
 
 public LineViewIterator
 

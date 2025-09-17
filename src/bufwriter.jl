@@ -53,6 +53,22 @@ function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[x.first_unused_index:end]
 end
 
+function get_nonempty_buffer(x::BufWriter, min_size::Int)
+    n_avail = length(x.buffer) - x.first_unused_index + 1
+    n_avail ≥ min_size && return get_buffer(x)
+    return _get_nonempty_buffer(x, min_size)
+end
+
+@noinline function _get_nonempty_buffer(x::BufWriter, min_size::Int)
+    shallow_flush(x)
+    length(x.buffer) ≥ min_size && return get_buffer(x)
+    # Note: If min_size is negative, we would have taken the branch above
+    # so this cast is safe
+    new_size = overallocation_size(min_size % UInt)
+    x.buffer = Memory{UInt8}(undef, new_size)
+    return get_buffer(x)
+end
+
 function get_unflushed(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[1:(x.first_unused_index - 1)]
 end
@@ -78,7 +94,7 @@ julia> shallow_flush(wtr)
 6
 
 julia> String(take!(io))
-"hello"
+"hello!"
 ```
 """
 function shallow_flush(x::BufWriter)::Int
