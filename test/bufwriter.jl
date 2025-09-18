@@ -267,3 +267,25 @@ end
     resize_buffer(writer, 3)
     @test length(parent(get_buffer(writer))) == 3
 end
+
+@testset "Automatic closing" begin
+    io = IOBuffer()
+    try
+        BufWriter(io) do writer
+            write(writer, 0x61)
+            write(writer, "bc")
+            @test position(io) == 0
+            seekstart(io)
+            @test read(io) == UInt8[]
+            shallow_flush(writer)
+            seekstart(io)
+            @test read(io) == b"abc"
+            seekstart(io)
+            error()
+        end
+    catch
+        nothing
+    end
+    @test !iswritable(io)
+    @test_throws Exception read(io)
+end

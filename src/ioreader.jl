@@ -59,8 +59,13 @@ function Base.read(x::IOReader, ::Type{UInt8})
 end
 
 function Base.read!(x::IOReader, A::AbstractArray{UInt8})
-    return @something _read!(x, A) throw(EOFError())
+    return @something _read!(x.x, A) throw(EOFError())
 end
+
+function Base.read!(x::IOReader, A::StridedArray{UInt8})
+    return @something _read!(x.x, A) throw(EOFError())
+end
+
 
 Base.read(x::IOReader, n::Integer) = read(x.x, n)
 Base.readline(x::IOReader; keep::Bool = false) = readline(x.x; keep)

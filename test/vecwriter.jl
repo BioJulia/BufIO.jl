@@ -44,6 +44,15 @@ end
     end
 end
 
+@testset "specialized methods" begin
+    io = VecWriter()
+    @test isempty(get_unflushed(io))
+    write(io, 0xaa)
+    write(io, 0x61)
+    write(io, 0x63)
+    @test String(io.vec) == "\xaaac"
+end
+
 @testset "position" begin
     io = VecWriter()
     @test position(io) == filesize(io) == 0

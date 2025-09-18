@@ -141,3 +141,17 @@ end
     seekstart(io)
     @test read(io) == b"abcdef"
 end
+
+@testset "Automatic closing" begin
+    io = IOBuffer("hello, world!")
+    try
+        BufReader(io, 3) do reader
+            fill_buffer(reader)
+            @test readavailable(reader) == b"hel"
+            error()
+        end
+    catch
+        nothing
+    end
+    @test !isreadable(io)
+end

@@ -118,3 +118,120 @@ end
     end
     @test all(==(0xaa), arr3)
 end
+
+@testset "IOReader read!" begin
+    cursor = CursorReader("read into array")
+    io_reader = IOReader(cursor)
+
+    # Test reading into exact size array
+    arr = Vector{UInt8}(undef, 4)
+    result = read!(io_reader, arr)
+    @test result === arr
+    @test arr == b"read"
+    @test position(io_reader) == 4
+
+    # Test reading into larger array
+    arr2 = Vector{UInt8}(undef, 20)
+    remaining_data = b" into array"
+    read!(io_reader, view(arr2, 1:length(remaining_data)))
+    @test arr2[1:length(remaining_data)] == remaining_data
+    @test eof(io_reader)
+
+    # Test reading from empty reader (should throw EOF error)
+    empty_cursor = CursorReader("")
+    empty_io = IOReader(empty_cursor)
+    arr3 = Vector{UInt8}(undef, 1)
+    @test_throws EOFError read!(empty_io, arr3)
+
+    # Test reading more than available (should throw EOF error)
+    cursor2 = CursorReader("ab")
+    io_reader2 = IOReader(cursor2)
+    arr4 = Vector{UInt8}(undef, 5)
+    @test_throws EOFError read!(io_reader2, arr4)
+end
+
+@testset "IOReader readbytes!" begin
+    cursor = CursorReader("readbytes test data")
+    io_reader = IOReader(cursor)
+
+    # Test reading exact amount
+    buf = UInt8[]
+    n_read = readbytes!(io_reader, buf, 9)
+    @test n_read == 9
+    @test buf == b"readbytes"
+    @test position(io_reader) == 9
+
+    # Test trying to read more than available
+    buf2 = UInt8[]
+    n_read2 = readbytes!(io_reader, buf2, 100)
+    @test n_read2 == 10  # " test data" remaining
+    @test buf2 == b" test data"
+    @test eof(io_reader)
+
+    # Test readbytes will grows buffer
+    cursor2 = CursorReader("buffer test")
+    io_reader2 = IOReader(cursor2)
+    buf3 = Vector{UInt8}(undef, 3)
+    n_read3 = readbytes!(io_reader2, buf3, 6)
+    @test n_read3 == 6
+    @test buf3 == b"buffer"
+
+    # Test default nb parameter (should use length(b))
+    buf4 = Vector{UInt8}(undef, 4)
+    n_read4 = readbytes!(io_reader2, buf4)  # No nb parameter
+    @test n_read4 == 4
+    @test buf4 == b" tes"
+
+    # Test will not try to shrink buffer
+    buf5 = fill(0xaa, 5)
+    io_reader3 = IOReader(CursorReader("hi!"))
+    n_read5 = readbytes!(io_reader3, buf5)
+    @test n_read5 == 3
+    @test buf5 == b"hi!\xaa\xaa"
+end
+
+@testset "IOReader readline" begin
+    cursor = CursorReader("line1\nline2\r\nline3\nlast")
+    io_reader = IOReader(cursor)
+
+    # Test readline without keep
+    @test readline(io_reader) == "line1"
+    @test readline(io_reader) == "line2"
+    @test readline(io_reader) == "line3"
+    @test readline(io_reader) == "last"
+    @test eof(io_reader)
+
+    # Test with keep=true
+    cursor2 = CursorReader("keep\ntest\r\n")
+    io_reader2 = IOReader(cursor2)
+    @test readline(io_reader2; keep = true) == "keep\n"
+    @test readline(io_reader2; keep = true) == "test\r\n"
+    @test eof(io_reader2)
+
+    # Test with keep=false explicitly
+    cursor3 = CursorReader("explicit\ntest")
+    io_reader3 = IOReader(cursor3)
+    @test readline(io_reader3; keep = false) == "explicit"
+    @test readline(io_reader3; keep = false) == "test"
+end
+
+@testset "IOReader copyuntil" begin
+    cursor = CursorReader("copy,until,delimiter,test")
+    io_reader = IOReader(cursor)
+    output = IOBuffer()
+
+    # Test copyuntil without keep
+    result = copyuntil(output, io_reader, UInt8(','))
+    @test result === output
+    @test String(take!(output)) == "copy"
+    @test read(io_reader, UInt8) == UInt8('u')  # Should be at 'u' after delimiter
+
+    # Test copyuntil with keep
+    copyuntil(output, io_reader, UInt8(','); keep = true)
+    @test String(take!(output)) == "ntil,"
+
+    # Test copyuntil when delimiter not found (should copy to end)
+    copyuntil(output, io_reader, UInt8('!'))
+    @test String(take!(output)) == "delimiter,test"
+    @test eof(io_reader)
+end
