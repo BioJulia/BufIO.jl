@@ -53,6 +53,30 @@ function Base.iterate(x::LineViewIterator, state::Int = 0)
     end
 end
 
+# Fill buffer of `x` until it contains a `byte`, then return the index
+# in the buffer of that byte.
+# If `x` doesn't contain `byte` until EOF, returned value is nothing.
+function buffer_until(x::AbstractBufReader, byte::UInt8)::Union{Int, HitBufferLimit, Nothing}
+    scan_from = 1
+    buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    isnothing(buffer) && return nothing
+    while true
+        pos = findnext(==(byte), buffer, scan_from)
+        pos === nothing || return pos
+        scan_from = length(buffer) + 1
+        n_filled = fill_buffer(x)
+        if n_filled === nothing
+            return HitBufferLimit()
+        elseif iszero(n_filled)
+            return nothing
+        else
+            buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+            length(buffer) < scan_from && error("Invalid fill_buffer / get_buffer implementation")
+        end
+    end
+    return # unreachable
+end
+
 struct EachLine{T <: AbstractBufReader}
     x::LineViewIterator{T}
 end

@@ -450,6 +450,40 @@ end
         @test String(take!(output_io4)) == "\r\n"
         @test eof(reader4)
     end
+
+    @testset "Base.copyline with limited buffer" begin
+        # Normal case
+        rdr = BoundedReader("abc\r\ndef\r\n", 2)
+        io = IOBuffer()
+        copyline(io, rdr)
+        seekstart(io)
+        @test read(io) == b"abc"
+        copyline(io, rdr)
+        seekstart(io)
+        @test read(io) == b"abcdef"
+
+        # Length buffer == 1, but no \r\n
+        rdr = BoundedReader("abc\ndef", 1)
+        io = IOBuffer()
+        copyline(io, rdr)
+        seekstart(io)
+        @test read(io) == b"abc"
+        copyline(io, rdr)
+        seekstart(io)
+        @test read(io) == b"abcdef"
+
+        # Length buffer 1 and \r\n but keep
+        rdr = BoundedReader("abc\r\nab", 1)
+        io = IOBuffer()
+        copyline(io, rdr; keep = true)
+        seekstart(io)
+        @test read(io) == b"abc\r\n"
+
+        # Length buffer == 1 and \r\n
+        rdr = BoundedReader("abc\r\nab", 1)
+        io = IOBuffer()
+        @test_throws IOError copyline(io, rdr; keep = false)
+    end
 end
 
 @testset "skip" begin

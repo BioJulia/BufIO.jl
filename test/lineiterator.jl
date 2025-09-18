@@ -73,6 +73,17 @@ end
     lines4 = collect(line_views(io4))
     @test length(lines4) == 1
     @test String(lines4[1]) == ""
+
+    # Bounded buffer size
+    # Normal case - works
+    rdr = BoundedReader("abcd\nefg\r\n", 5)
+    it = line_views(rdr; chomp = false)
+    @test first(iterate(it)) == b"abcd\n"
+
+    # Buffer too short - does not work
+    rdr = BoundedReader("abcd\nefg\r\n", 4)
+    it = line_views(rdr; chomp = false)
+    @test_throws ArgumentError iterate(it)
 end
 
 @testset "eachline basic functionality" begin
