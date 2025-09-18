@@ -37,11 +37,32 @@ for f in [
 end
 
 Base.read(x::IOReader, ::Type{String}) = read(x.x, String)
-Base.unsafe_read(x::IOReader, p::Ptr{UInt8}, n::UInt) = unsafe_read(x.x, p, n)
-Base.peek(x::IOReader, ::Type{UInt8}) = peek(x.x, UInt8)
-Base.read(x::IOReader, ::Type{UInt8}) = read(x.x, UInt8)
+
+function Base.unsafe_read(x::IOReader, p::Ptr{UInt8}, n::UInt)
+    n_read = unsafe_read(x.x, p, n)
+    (n_read % UInt) == n || throw(EOFError())
+    return nothing
+end
+
+function Base.peek(x::IOReader, ::Type{UInt8})
+    buffer = get_nonempty_buffer(x.x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    if buffer === nothing
+        throw(EOFError())
+    end
+    return first(buffer)
+end
+
+function Base.read(x::IOReader, ::Type{UInt8})
+    res = peek(x, UInt8)
+    @inbounds consume(x.x, 1)
+    return res
+end
+
+function Base.read!(x::IOReader, A::AbstractArray{UInt8})
+    return @something _read!(x, A) throw(EOFError())
+end
+
 Base.read(x::IOReader, n::Integer) = read(x.x, n)
-Base.read!(x::IOReader, A::AbstractArray{UInt8}) = read!(x.x, A)
 Base.readline(x::IOReader; keep::Bool = false) = readline(x.x; keep)
 Base.seek(x::IOReader, n::Integer) = seek(x.x, n)
 

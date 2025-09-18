@@ -127,5 +127,17 @@ end
     @test_throws IOError seek(reader, filesize(io) + 1)
 end
 
-# TODO: Write more tests
-# Test buffer growth specifically
+@testset "resize_buffer" begin
+    io = BufReader(IOBuffer("abcdef"))
+    @test_throws ArgumentError resize_buffer(io, 0)
+    resize_buffer(io, 1)
+    resize_buffer(io, 10)
+    fill_buffer(io)
+    @test length(get_buffer(io)) == 6
+    @test_throws ArgumentError resize_buffer(io, 5)
+    resize_buffer(io, 7)
+    @test read(io) == b"abcdef"
+    resize_buffer(io, 2)
+    seekstart(io)
+    @test read(io) == b"abcdef"
+end

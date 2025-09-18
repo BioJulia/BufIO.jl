@@ -47,6 +47,37 @@ function BufReader(io::IO, buffer_size::Int = 8192)
     return BufReader{typeof(io)}(io, mem)
 end
 
+"""
+    BufReader(f, io::IO, [buffer_size::Int])
+
+Create a `BufReader` wrapping `io`, then call `f` on the `BufReader`,
+and close the reader once `f` is finished or if it errors.
+
+This pattern is useful for automatically cleaning up the resource of
+`io`.
+
+```jldoctest
+julia> io = IOBuffer("hello world");
+
+julia> BufReader(io) do reader
+           println(String(read(io, 5)))
+       end
+hello
+
+julia> read(io) # closing reader closes io also
+ERROR: ArgumentError: read failed, IOBuffer is not readable
+[...]
+```
+"""
+function BufReader(f, io::IO, buffer_size::Int = 8192)
+    reader = BufReader(io, buffer_size)
+    return try
+        f(reader)
+    finally
+        close(reader)
+    end
+end
+
 function get_buffer(x::BufReader)::ImmutableMemoryView{UInt8}
     return @inbounds ImmutableMemoryView(x.buffer)[x.start:x.stop]
 end

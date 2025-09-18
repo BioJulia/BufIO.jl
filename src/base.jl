@@ -165,11 +165,18 @@ If `io` reaches EOF before filling `A`, throw an `IOError` with `IOErrorKinds.EO
 See also: [`read_all!`](@ref), [`read_into!`](@ref)
 """
 function Base.read!(x::AbstractBufReader, A::AbstractArray{UInt8})
+    return @something _read!(x, A) throw(IOError(IOErrorKinds.EOF))
+end
+
+function _read!(
+        x::AbstractBufReader,
+        A::AbstractArray{UInt8}
+    )::Union{AbstractArray, Nothing}
     Ai = first(eachindex(IndexLinear(), A))
     remaining = Int(length(A))::Int
     while remaining > 0
         buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
+        isnothing(buffer) && return nothing
         mn = min(remaining, length(buffer))
         buffer = @inbounds buffer[1:mn]
         copyto!(A, Ai, buffer, 1, mn)

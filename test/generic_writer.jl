@@ -119,6 +119,12 @@ end
     @test write(io8, big_val) == 16
     @test length(io8.x.vec) == 16
     @test reinterpret(Int128, io8.x.vec)[1] == big_val
+
+    # With smaller buffer size
+    io = GenericBufWriter(zeros(UInt8, 0))
+    sizehint!(io.x.vec, 2)
+    write(io, 3137397676310531179717)
+    @test only(reinterpret(Int128, io.x.vec)) == 3137397676310531179717
 end
 
 @testset "write(::T, ::Array)" begin

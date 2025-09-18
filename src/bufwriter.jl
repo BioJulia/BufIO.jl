@@ -49,6 +49,39 @@ function BufWriter(io::IO, buffer_size::Int = 4096)
     return BufWriter{typeof(io)}(io, mem)
 end
 
+"""
+    BufWriter(f, io::IO, [buffer_size::Int])
+
+Create a `BufWriter` wrapping `io`, then call `f` on the `BufWriter`,
+and close the writer once `f` is finished or if it errors.
+
+This pattern is useful for automatically cleaning up the resource of
+`io`.
+
+```jldoctest
+julia> io = IOBuffer();
+
+julia> BufWriter(io) do writer
+           write(writer, "hello, world!")
+           shallow_flush(writer)
+           seekstart(io)
+           println(String(read(io)))
+       end
+hello, world!
+
+julia> iswritable(io) # closing reader closes io also
+false
+```
+"""
+function BufWriter(f, io::IO, buffer_size::Int = 4096)
+    writer = BufWriter(io, buffer_size)
+    return try
+        f(writer)
+    finally
+        close(writer)
+    end
+end
+
 function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[x.first_unused_index:end]
 end

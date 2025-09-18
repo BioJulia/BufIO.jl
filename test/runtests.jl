@@ -31,3 +31,7 @@ end
 @testset "VecWriter" begin
     include("vecwriter.jl")
 end
+
+@testset "IOReader" begin
+    include("ioreader.jl")
+end

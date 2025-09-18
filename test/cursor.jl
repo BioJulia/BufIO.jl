@@ -79,6 +79,17 @@ end
     @test_throws IOError seek(reader, 5)  # Beyond end
     @test_throws IOError seek(reader, 100)
 
+    # Seekstart and end
+    reader = CursorReader("hello, world!")
+    read(reader, 4)
+    @test peek(reader) == UInt8('o')
+    seekstart(reader)
+    @test read(reader, UInt8) == UInt8('h')
+    seekend(reader)
+    @test eof(reader)
+    seekstart(reader)
+    @test read(reader) == b"hello, world!"
+
     # Verify error kind
     try
         seek(reader, -1)
@@ -93,4 +104,19 @@ end
         @test e isa IOError
         @test e.kind == IOErrorKinds.BadSeek
     end
+end
+
+@testset "Misc cursor" begin
+    io = CursorReader("abcef")
+    @test read(io, UInt8) == UInt8('a')
+    close(io) # do nothing
+    @test fill_buffer(io) == 0
+    @test read(io, UInt8) == UInt8('b')
+
+    consume(io, 2)
+    @test peek(io, UInt8) == UInt8('f')
+    @test_throws IOError consume(io, -1)
+    @test_throws IOError consume(io, 2)
+    consume(io, 1)
+    @test eof(io)
 end
