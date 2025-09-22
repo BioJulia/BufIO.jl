@@ -148,6 +148,13 @@ end
     io_reader2 = IOReader(cursor2)
     arr4 = Vector{UInt8}(undef, 5)
     @test_throws EOFError read!(io_reader2, arr4)
+
+    # Test generic array
+    cursor3 = CursorReader("abcde")
+    io_reader3 = IOReader(cursor3)
+    arr5 = Test.GenericArray([0x01, 0x02, 0x03])
+    read!(io_reader3, arr5)
+    @test arr5 == b"abc"
 end
 
 @testset "IOReader readbytes!" begin
@@ -233,5 +240,42 @@ end
     # Test copyuntil when delimiter not found (should copy to end)
     copyuntil(output, io_reader, UInt8('!'))
     @test String(take!(output)) == "delimiter,test"
+    @test eof(io_reader)
+end
+
+@testset "IOReader copyline" begin
+    cursor = CursorReader("first line\nsecond line\r\nthird")
+    io_reader = IOReader(cursor)
+    output = IOBuffer()
+
+    # Test copyline without keep
+    copyline(output, io_reader)
+    @test String(take!(output)) == "first line"
+
+    # Test copyline with keep=true
+    copyline(output, io_reader; keep = true)
+    @test String(take!(output)) == "second line\r\n"
+
+    # Test copyline with no trailing newline
+    copyline(output, io_reader; keep = false)
+    @test String(take!(output)) == "third"
+    @test eof(io_reader)
+end
+
+@testset "IOReader readuntil" begin
+    cursor = CursorReader("read#until#delimiter#end")
+    io_reader = IOReader(cursor)
+
+    # Test readuntil without keep
+    result = readuntil(io_reader, UInt8('#'))
+    @test result == b"read"
+
+    # Test readuntil with keep=true
+    result2 = readuntil(io_reader, UInt8('#'); keep = true)
+    @test result2 == b"until#"
+
+    # Test readuntil when delimiter not found
+    result3 = readuntil(io_reader, UInt8('@'))
+    @test result3 == b"delimiter#end"
     @test eof(io_reader)
 end

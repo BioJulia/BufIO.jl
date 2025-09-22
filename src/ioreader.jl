@@ -83,6 +83,10 @@ function Base.copyline(out::IO, from::IOReader; keep::Bool = false)
     return copyline(out, from.x; keep)
 end
 
+function Base.copyline(out::IOBuffer, from::IOReader; keep::Bool = false)
+    return copyline(out, from.x; keep)
+end
+
 function Base.readuntil(x::IOReader, delim::UInt8; keep::Bool = false)
     return readuntil(x.x, delim; keep)
 end
