@@ -479,10 +479,22 @@ end
         seekstart(io)
         @test read(io) == b"abc\r\n"
 
+        # Length buffer == 1 and ends at \r
+        rdr = BoundedReader("abc\r", 1)
+        io = IOBuffer()
+        @test_throws IOError copyline(io, rdr; keep = false)
+
         # Length buffer == 1 and \r\n
         rdr = BoundedReader("abc\r\nab", 1)
         io = IOBuffer()
         @test_throws IOError copyline(io, rdr; keep = false)
+
+        # Length == 1, but buffer can grow
+        rdr = BufReader(IOBuffer("abc\r\n"), 1)
+        io = IOBuffer()
+        copyline(io, rdr; keep = false)
+        seekstart(io)
+        @test read(io) == b"abc"
     end
 end
 

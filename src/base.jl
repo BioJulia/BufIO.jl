@@ -252,10 +252,12 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
                     else
                         # Else, we need to fill in more bytes
                         buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
+                        @assert length(buffer) > 1
                         continue
                     end
+                else
+                    @inbounds buffer[1:(end - 1)]
                 end
-                buffer[1:(end - 1)]
             else
                 buffer
             end

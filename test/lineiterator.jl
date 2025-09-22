@@ -153,6 +153,13 @@ end
     @test lines[3] == [0xFF, 0x00, 0x01]  # Binary data preserved
 end
 
+@testset "with small growable buffer" begin
+    io = IOBuffer("line1\r\nline2")
+    reader = BufReader(io, 5)
+    lines = line_views(reader)
+    @test map(copy, lines) == [b"line1", b"line2"]
+end
+
 @testset "Iterator consistency" begin
     # Verify that line_views and eachline give consistent results
     test_data = "line1\nline2\r\nline3\n"

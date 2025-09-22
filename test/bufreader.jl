@@ -47,6 +47,13 @@ end
     io_eof = IOBuffer("")
     reader_eof = BufReader(io_eof)
     @test fill_buffer(reader_eof) == 0
+
+    # Test consume too much
+    io = IOBuffer("test")
+    reader = BufReader(io, 10)
+    fill_buffer(reader)
+    @test length(get_buffer(reader)) == 4
+    @test_throws IOError consume(reader, 5)
 end
 
 @testset "Position tracking" begin

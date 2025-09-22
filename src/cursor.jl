@@ -23,19 +23,19 @@ julia> read(rdr, String)
 """
 mutable struct CursorReader <: AbstractBufReader
     data::ImmutableMemoryView{UInt8}
-    i::Int
+    offset::Int # always in 0:length(data)
 
     function CursorReader(x)
         mem = ImmutableMemoryView{UInt8}(x)::ImmutableMemoryView{UInt8}
-        return new(mem, 1)
+        return new(mem, 0)
     end
 end
 
 fill_buffer(::CursorReader) = 0
 
-get_buffer(x::CursorReader) = @inbounds x.data[x.i:end]
+get_buffer(x::CursorReader) = @inbounds x.data[(x.offset + 1):end]
 
-Base.position(x::CursorReader) = x.i - 1
+Base.position(x::CursorReader) = x.offset
 
 """
     filesize(io::AbstractBufReader)::Int
@@ -49,10 +49,10 @@ reading bytes should not change the filesize.
 Base.filesize(x::CursorReader) = length(x.data)
 
 function consume(x::CursorReader, n::Int)
-    @boundscheck if (n % UInt) > (length(x.data) - x.i + 1) % UInt
+    @boundscheck if (n % UInt) > (length(x.data) - x.offset) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
-    x.i += n
+    x.offset += n
     return nothing
 end
 
@@ -61,6 +61,6 @@ Base.close(::CursorReader) = nothing
 function Base.seek(x::CursorReader, offset::Integer)
     offset = Int(offset)::Int
     in(offset, 0:filesize(x)) || throw(IOError(IOErrorKinds.BadSeek))
-    x.i = offset + 1
+    x.offset = offset
     return x
 end
