@@ -54,3 +54,42 @@ function BufIO.consume(x::BoundedReader, n::Int)
     x.buffer_size -= n
     return nothing
 end
+
+mutable struct BoundedWriter <: AbstractBufWriter
+    x::VecWriter
+    mem::Memory{UInt8}
+    written::Int
+end
+
+function BoundedWriter(size::Int)
+    size < 1 && error("Bad parameterization")
+    return BoundedWriter(VecWriter(), Memory{UInt8}(undef, size), 0)
+end
+
+function BufIO.get_buffer(x::BoundedWriter)
+    return MemoryView(x.mem)[(x.written + 1):end]
+end
+
+function BufIO.grow_buffer(x::BoundedWriter)
+    write(x.x, x.mem[1:x.written])
+    old = x.written
+    x.written = 0
+    return old
+end
+
+function BufIO.consume(x::BoundedWriter, n::Int)
+    remaining = length(x.mem) - x.written
+    in(n, 0:remaining) || throw(IOError(IOErrors.ConsumeBufferError))
+    x.written += n
+    return nothing
+end
+
+function Base.close(x::BoundedWriter)
+    flush(x)
+    return nothing
+end
+
+function Base.flush(x::BoundedWriter)
+    write(x.x, ImmutableMemoryView(x.mem)[1:x.written])
+    return nothing
+end

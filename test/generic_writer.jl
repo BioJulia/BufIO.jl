@@ -186,3 +186,19 @@ end
     ]
     @test io.x.vec == expected
 end
+
+@testset "Write to bounded buffer" begin
+    for (n, n_bytes) in Any[
+            (-32432.1234, 3),
+            (1.1f3, 2),
+            (Int32(394398243), 1),
+            (Int8(2), 1),
+            (Int128(94837923794837492), 6),
+            (Int16(-12324), 1),
+        ]
+        w = BoundedWriter(n_bytes)
+        write(w, n)
+        flush(w)
+        @test only(reinterpret(typeof(n), w.x.vec)) === n
+    end
+end
