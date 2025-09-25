@@ -47,9 +47,9 @@ end
 @testset "specialized methods" begin
     io = VecWriter()
     @test isempty(get_unflushed(io))
-    write(io, 0xaa)
-    write(io, 0x61)
-    write(io, 0x63)
+    @test write(io, 0xaa) == 1
+    @test write(io, 0x61) == 1
+    @test write(io, 0x63) == 1
     @test String(io.vec) == "\xaaac"
 end
 

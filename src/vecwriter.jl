@@ -38,6 +38,8 @@ end
 
 get_ref(v::Vector) = Base.cconvert(Ptr, v)
 
+# In later Julia versions, use the generic method. In earlier, we can read
+# the field, since the field won't get retroactively removed.
 if hasmethod(parent, Tuple{MemoryRef})
     get_memory(v::Vector) = parent(get_ref(v))
 else
@@ -74,15 +76,17 @@ end
         io::AbstractBufWriter, min_size::Int
     )::Union{Nothing, MutableMemoryView{UInt8}}
 
-Get a nonempty buffer of at least size `min_size`.
+Get a buffer of at least size `max(min_size, 1)`.
 
-This function need not be implemented for subtypes of `AbstractBufWriter` that do not
-flush their writes to an underlying IO.
+This method is optionally implemented for subtypes of `AbstractBufWriter`,
+and is typically only implemented for types which do not flish their data to an
+underlying IO, such that there is no memory savings by writing in smaller
+chunks.
 
 !!! warning
-    Use of this functions may cause excessive buffering without flushing,
-    which is less efficient than calling the one-argument method in a loop.
-    Authors should avoid implementing this method for types capable of flushing.
+    Use of this method may cause excessive buffering without flushing,
+    which is less memory efficient than calling the one-argument method
+    and flushing in a loop.
 """
 function get_nonempty_buffer(x::VecWriter, min_size::Int)
     ensure_unused_space!(x.vec, max(min_size, 1) % UInt)
@@ -181,14 +185,24 @@ if isdefined(Base, :takestring!)
 end
 
 ## Optimised write implementations
-Base.write(io::VecWriter, x::UInt8) = push!(io.vec, x)
+Base.write(io::VecWriter, x::UInt8) = (push!(io.vec, x); 1)
 
 function Base.write(io::VecWriter, mem::Union{String, SubString{String}, PlainMemory})
     so = sizeof(mem)
     buffer = get_nonempty_buffer(io, so)
     GC.@preserve buffer mem begin
-        unsafe_copyto!(pointer(buffer), Ptr{UInt8}(pointer(mem)), so)
+        unsafe_copyto!(pointer(buffer), Ptr{UInt8}(pointer(mem)), so % UInt)
     end
     @inbounds consume(io, so)
     return so
+end
+
+function Base.write(io::VecWriter, x::PlainTypes)
+    buffer = get_nonempty_buffer(io, sizeof(x))
+    GC.@preserve buffer begin
+        p = Ptr{typeof(x)}(pointer(buffer))
+        unsafe_store!(p, x)
+    end
+    @inbounds consume(io, sizeof(x))
+    return sizeof(x)
 end

@@ -62,10 +62,10 @@ function Base.read!(x::IOReader, A::AbstractArray{UInt8})
     return @something _read!(x.x, A) throw(EOFError())
 end
 
+# Prevent ambiguity
 function Base.read!(x::IOReader, A::StridedArray{UInt8})
     return @something _read!(x.x, A) throw(EOFError())
 end
-
 
 Base.read(x::IOReader, n::Integer) = read(x.x, n)
 Base.readline(x::IOReader; keep::Bool = false) = readline(x.x; keep)
@@ -83,6 +83,7 @@ function Base.copyline(out::IO, from::IOReader; keep::Bool = false)
     return copyline(out, from.x; keep)
 end
 
+# Prevent ambiguity
 function Base.copyline(out::IOBuffer, from::IOReader; keep::Bool = false)
     return copyline(out, from.x; keep)
 end

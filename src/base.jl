@@ -59,21 +59,20 @@ function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
 end
 
 function Base.unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
-    n_total_read = 0
+    p_stop = p + n
+    p_start = p
     while true
         buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buf) && return n_total_read
-        L = min(length(buf), n % Int)
+        isnothing(buf) && return (p - p_start) % Int
+        L = min(length(buf) % UInt, (p_stop - p))
         GC.@preserve buf begin
             unsafe_copyto!(p, pointer(buf), L)
         end
         p += L
-        @inbounds consume(x, L)
-        n_total_read += L
-        n -= L
-        iszero(n) && return n_total_read
+        @inbounds consume(x, L % Int)
+        (p ≥ p_stop) && return (p - p_start) % Int
     end
-    return n_total_read # unreachable
+    return 0 # unreachable
 end
 
 """
@@ -168,7 +167,7 @@ function Base.read!(x::AbstractBufReader, A::AbstractArray{UInt8})
     return @something _read!(x, A) throw(IOError(IOErrorKinds.EOF))
 end
 
-function _read!(
+@inline function _read!(
         x::AbstractBufReader,
         A::AbstractArray{UInt8}
     )::Union{AbstractArray, Nothing}
@@ -252,7 +251,6 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
                     else
                         # Else, we need to fill in more bytes
                         buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
-                        @assert length(buffer) > 1
                         continue
                     end
                 else
@@ -316,8 +314,7 @@ See also: [`Base.skip`](@ref)
 """
 function skip_exact(io::AbstractBufReader, n::Integer)
     n < 0 && throw(ArgumentError("Cannot skip negative amount"))
-    n = UInt(n)::UInt
-    skipped = UInt(skip(io, n))
+    skipped = skip(io, n)
     skipped == n || throw(IOError(IOErrorKinds.EOF))
     return nothing
 end
@@ -395,25 +392,6 @@ function Base.write(io::AbstractBufWriter, mem::Union{String, SubString{String},
 end
 
 function Base.write(io::AbstractBufWriter, x::PlainTypes)
-    return if hasmethod(get_nonempty_buffer, Tuple{typeof(io), Int})
-        write_direct(io, x)
-    else
-        write_indirect(io, x)
-    end
-end
-
-function write_direct(io::AbstractBufWriter, x::PlainTypes)
-    buffer = get_nonempty_buffer(io, sizeof(x))
-    isnothing(buffer) && return _write_slowpath(io, x)
-    GC.@preserve buffer begin
-        p = Ptr{typeof(x)}(pointer(buffer))
-        unsafe_store!(p, x)
-    end
-    @inbounds consume(io, sizeof(x))
-    return sizeof(x)
-end
-
-function write_indirect(io::AbstractBufWriter, x::PlainTypes)
     buffer = get_buffer(io)::MutableMemoryView{UInt8}
     buflen = length(buffer)
     # Grow buffer to sizeof(x) to enable the fast path, if possible
@@ -452,6 +430,17 @@ end
 end
 
 Base.write(io::AbstractBufWriter, v::Union{Memory, Array}) = write(io, ImmutableMemoryView(v))
+
+function Base.write(io::AbstractBufWriter, c::Char)
+    u = bswap(reinterpret(UInt32, c))
+    n = 0
+    while true
+        n += write(io, u % UInt8)
+        u >>>= 8
+        iszero(u) && return n
+    end
+    return
+end
 
 as_unsigned(x::PlainTypes) = as_unsigned(x, Val{sizeof(x)}())
 as_unsigned(x, ::Val{1}) = reinterpret(UInt8, x)

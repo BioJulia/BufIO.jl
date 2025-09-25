@@ -64,3 +64,5 @@ function Base.seek(x::CursorReader, offset::Integer)
     x.offset = offset
     return x
 end
+
+read_all!(io::CursorReader, dst::MutableMemoryView{UInt8}) = read_into!(io, dst)
