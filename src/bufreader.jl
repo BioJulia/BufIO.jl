@@ -173,7 +173,7 @@ end
 Seek `io` to the zero-based position `offset`, if `io` supports seeking,
 and return `io`.
 When `offset === 0`, this is equivalent to `seekstart`.
-If `filesize(io)` is implemented, this is equivalent to `seekend(io)`.
+If `filesize(io)` is implemented, `seek(io, filesize(io))` is equivalent to `seekend(io)`.
 
 Valid offsets are `0:filesize(io)`, if `io` implements `filesize`. Seeking outside
 these bounds throws an `IOError` of kind `BadSeek`.

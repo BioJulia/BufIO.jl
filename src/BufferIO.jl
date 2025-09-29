@@ -181,9 +181,9 @@ Subtypes `T` of this type should implement at least:
 
 * `get_buffer(io::T)`
 * `grow_buffer(io::T)`
+* `consume(io::T, n::Int)`
 * `Base.close(io::T)`
 * `Base.flush(io::T)`
-* `consume(io::T, n::Int)`
 
 They may optionally implement
 * `get_unflushed(io::T)`
@@ -203,16 +203,16 @@ abstract type AbstractBufWriter end
 
 Get the available bytes of `io`.
 
-Calling this function when the buffer is empty should do actual system I/O, and in particular
-should not attempt to fill the buffer.
+Calling this function, even when the buffer is empty, should never do actual system I/O,
+and in particular should not attempt to fill the buffer.
 To fill the buffer, call [`fill_buffer`](@ref).
 
     get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}
 
 Get the available mutable buffer of `io` that can be written to.
 
-Calling this function should do actual system I/O, and in particular
-should not attempt to flush data from the buffer.
+Calling this function should never do actual system I/O, and in particular
+should not attempt to flush data from the buffer or grow the buffer.
 To increase the size of the buffer, call [`grow_buffer`](@ref).
 """
 function get_buffer end
@@ -234,13 +234,12 @@ This function should never return `nothing` if the buffer is empty.
 
 !!! note
     Idiomatically, users should not call `fill_buffer` when the buffer is not empty,
-    because doing so forces growing the buffer instead of letting `io` choose an optimal
+    because doing so may force growing the buffer instead of letting `io` choose an optimal
     buffer size. Calling `fill_buffer` with a nonempty buffer is only appropriate if, for
     algorithmic reasons you need `io` itself to buffer some minimum amount of data.
 """
 function fill_buffer(::AbstractBufReader) end
 
-# TODO: Bad name. Need to signal that it may clear or expand the buffer.
 """
     grow_buffer(io::AbstractBufWriter)::Int
 
@@ -248,9 +247,12 @@ Increase the amount of bytes in the writeable buffer of `io` if possible, return
 the number of bytes added. After calling `grow_buffer` and getting `n`,
 the buffer obtained by `get_buffer` should have `n` more bytes.
 
-* If there is data in the buffer of `io`, flush it to the underlying io if possible.
-* Else, if `io`'s buffer can be expanded, do so.
-* Else, return zero
+Unless stated otherwise for a specific subtype of `AbstractBufReader`, this function will
+grow the buffer by:
+
+1 If there is data in the buffer of `io`, flush it to the underlying io if possible.
+2 Else, if `io`'s buffer can be expanded, do so.
+3 Else, do not grow buffer and return zero
 
 !!! note
     Idiomatically, users should not call `grow_buffer` when the buffer is not empty,
@@ -269,10 +271,11 @@ but not yet flushed to its underlying IO.
 
 Bytes not appearing in the buffer may not be completely flushed
 if there are more layers of buffering in the IO wrapped by `io`. However, any bytes
-already consumed and not returned in `get_unflushed` should not be buffered in `io`.
+already consumed and not returned in `get_unflushed` should not be buffered in `io` itself.
 
 Mutating the returned buffer is allowed, and should not cause `io` to malfunction.
-When `io` flushes, the updated values in the buffer will be flushed.
+After mutating the returned buffer and calling `flush`, values in the updated buffer
+will be flushed.
 
 This function has no default implementation and methods are optionally added to subtypes
 of `AbstractBufWriter` that can fullfil the above restrictions.

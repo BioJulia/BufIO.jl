@@ -79,7 +79,7 @@ end
 Get a buffer of at least size `max(min_size, 1)`.
 
 This method is optionally implemented for subtypes of `AbstractBufWriter`,
-and is typically only implemented for types which do not flish their data to an
+and is typically only implemented for types which do not flush their data to an
 underlying IO, such that there is no memory savings by writing in smaller
 chunks.
 
@@ -167,7 +167,7 @@ the new and the previous position need not be changed, and the underlying file o
 need not immediately be truncated. However, new write operations should write (or
 overwrite) data at the new position.
 
-This method is not generically defined for `AbstractBufReader`. Implementors of `seek`
+This method is not generically defined for `AbstractBufWriter`. Implementors of `seek`
 should also define `filesize(io)` and `position(io)`
 """
 function Base.seek(x::VecWriter, offset::Int)
