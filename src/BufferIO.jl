@@ -1,4 +1,4 @@
-module BufIO
+module BufferIO
 
 using MemoryViews: MemoryViews, ImmutableMemoryView, MutableMemoryView, MemoryView
 
@@ -416,4 +416,4 @@ include("cursor.jl")
 include("ioreader.jl")
 include("vecwriter.jl")
 
-end # module BufIO
+end # module BufferIO

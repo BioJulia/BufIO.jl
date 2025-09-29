@@ -1,12 +1,12 @@
 ```@meta
-CurrentModule = BufIO
+CurrentModule = BufferIO
 DocTestSetup = quote
-    using BufIO
+    using BufferIO
 end
 ```
 
-# BufIO.jl
-BufIO provides new and improved I/O interfaces for Julia inspired by Rust, and designed around exposing buffers to users in order to explicitly copy bytes to and from them. Compared to the `Base.IO` interface, the new interfaces in this package are:
+# BufferIO.jl
+BufferIO provides new and improved I/O interfaces for Julia inspired by Rust, and designed around exposing buffers to users in order to explicitly copy bytes to and from them. Compared to the `Base.IO` interface, the new interfaces in this package are:
 
 * Lower level
 * Faster
@@ -14,7 +14,7 @@ BufIO provides new and improved I/O interfaces for Julia inspired by Rust, and d
 * Better specified, with more well-defined semantics
 * Free from slow fallback methods that silently trash your performance
 
-Beside the new interfaces, BufIO also provides a small set of basic types to make use of the new interface, and/or allow easy interoperation between `Base.IO` types and the new buffered interfaces.
+Beside the new interfaces, BufferIO also provides a small set of basic types to make use of the new interface, and/or allow easy interoperation between `Base.IO` types and the new buffered interfaces.
 
 ## Overview of content:
 * `AbstractBufReader`: A reader type that exposes its internal data as an immutable memory view of bytes
@@ -30,7 +30,7 @@ See usage examples in the sidebar to the left
 
 ## Design notes and limitations
 #### Requires Julia 1.11
-BufIO relies heavily on the `Memory` type and associated types introduced in 1.11 for its buffers
+BufferIO relies heavily on the `Memory` type and associated types introduced in 1.11 for its buffers
 
 #### **Not** threadsafe by default
 Locks introduce unwelcome overhead and defeats the purpose of low-level control of your IO. Wrap your IO in a lock if you need thread safety.

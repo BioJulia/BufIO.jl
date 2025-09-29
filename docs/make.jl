@@ -1,12 +1,12 @@
-using Documenter, BufIO
+using Documenter, BufferIO
 
-DocMeta.setdocmeta!(BufIO, :DocTestSetup, :(using BufIO); recursive = true)
+DocMeta.setdocmeta!(BufferIO, :DocTestSetup, :(using BufferIO); recursive = true)
 
 makedocs(;
-    sitename = "BufIO.jl",
-    modules = [BufIO],
+    sitename = "BufferIO.jl",
+    modules = [BufferIO],
     pages = [
-        "BufIO" => "index.md",
+        "BufferIO" => "index.md",
         "Readers" => "readers.md",
         "Writers" => "writers.md",
         "Types" => "types.md",
@@ -19,7 +19,7 @@ makedocs(;
 )
 
 deploydocs(;
-    repo = "github.com/BioJulia/BufIO.jl.git",
+    repo = "github.com/BioJulia/BufferIO.jl.git",
     push_preview = true,
     deps = nothing,
     make = nothing,

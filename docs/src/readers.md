@@ -1,7 +1,7 @@
 ```@meta
-CurrentModule = BufIO
+CurrentModule = BufferIO
 DocTestSetup = quote
-    using BufIO
+    using BufferIO
 end
 ```
 

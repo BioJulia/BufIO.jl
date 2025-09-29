@@ -1,9 +1,9 @@
-# BufIO.jl
-[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://biojulia.dev/BufIO.jl/dev/)
-[![Latest Release](https://img.shields.io/github/release/BioJulia/BufIO.jl.svg)](https://github.com/BioJulia/BufIO.jl/releases/latest)
-[![](https://codecov.io/gh/BioJulia/BufIO.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/BioJulia/BufIO.jl)
+# BufferIO.jl
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://biojulia.dev/BufferIO.jl/dev/)
+[![Latest Release](https://img.shields.io/github/release/BioJulia/BufferIO.jl.svg)](https://github.com/BioJulia/BufferIO.jl/releases/latest)
+[![](https://codecov.io/gh/BioJulia/BufferIO.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/BioJulia/BufferIO.jl)
 
-BufIO is an alternative IO interface in Julia inspired by Rust, designed around exposing buffers to users for them to explicitly copying to and from.
+BufferIO is an alternative IO interface in Julia inspired by Rust, designed around exposing buffers to users for them to explicitly copying to and from.
 Compared to `Base.IO`, the interfaces in this package are generally:
 
 * Lower level

@@ -1,6 +1,6 @@
 # Reference
 ```@autodocs
-Modules = [BufIO]
+Modules = [BufferIO]
 Private = false
 Order   = [:type, :function]
 ```

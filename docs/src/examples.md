@@ -1,20 +1,20 @@
-## Example use of BufIO
+## Example use of BufferIO
 ### Reader example
-For bulk I/O operations, there is often not much practical difference between `Base.IO` and the BufIO interfaces - except somewhat more precise semantics of the latter.
+For bulk I/O operations, there is often not much practical difference between `Base.IO` and the BufferIO interfaces - except somewhat more precise semantics of the latter.
 
-Where BufIO really shines are when you need to read and parse at the same time.
+Where BufferIO really shines are when you need to read and parse at the same time.
 For example, suppose you need to read a non-negative decimal number from an io object. You need to figure out where the number ends, _before_ reading it, lest you read too many bytes.
 With a `Base.IO` type, your choices are:
 1. Read one byte at a time, which is inefficient
 2. Implement your own buffering layer, and load data into the buffer, then read the number from the buffer.
 
-The latter is essentially an ad-hoc implementation of a BufIO-like interface.
+The latter is essentially an ad-hoc implementation of a BufferIO-like interface.
 This is what packages like FASTX.jl, XAM.jl and other parsing packages do. 
 
-Below is an implementation of how to do it using BufIO.
+Below is an implementation of how to do it using BufferIO.
 
 ```julia
-using BufIO, StringViews, MemoryViews
+using BufferIO, StringViews, MemoryViews
 
 is_decimal(x::UInt8) = in(x, UInt8('0'):UInt8('9'))
 
@@ -56,13 +56,13 @@ end
 ```
 
 ### Writer example
-Similar to the above example, where BufIO's principle of _the buffer is the interface_ enabled integrating reading and parsing for a more efficient API, BufIO's writer shine when you can write data directly into a buffer without any intermediate allocations.
+Similar to the above example, where BufferIO's principle of _the buffer is the interface_ enabled integrating reading and parsing for a more efficient API, BufferIO's writer shine when you can write data directly into a buffer without any intermediate allocations.
 
 For example, currently, writing a number to an `IOBuffer` allocates. This is because the number is first heap-allocated, and then data from the heap is copied into the io.
-In contrast, BufIO provides the the a buffer to write into directly.
+In contrast, BufferIO provides the the a buffer to write into directly.
 
 ```julia
-using BufIO, MemoryViews
+using BufferIO, MemoryViews
 
 # Constrain the signature to types of a known binary layout which we can copy
 # directly using a pointer
@@ -80,5 +80,7 @@ function write(io::AbstractBufWriter, n::BitInteger)
     return sizeof(n)
 end
 ```
+
+For types that implement the two-arg method of `get_nonempty_buffer`, 
 
 

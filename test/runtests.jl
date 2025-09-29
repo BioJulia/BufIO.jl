@@ -1,4 +1,4 @@
-using BufIO
+using BufferIO
 using Test
 using MemoryViews
 
