@@ -10,7 +10,7 @@ end
 The core interface of an `io::AbstractBufReader` consists of three functions, that are to be used together:
 * `get_buffer(io)` returns a view into the internal buffer with data ready to read. You read from the io by copying.
 * `fill_buffer(io)` attempts to append more bytes to the buffer returned by future calls to `get_buffer`
-* `consume(io, n::Int)` removes the first `n` bytes of the buffer
+* `consume(io, n::Int)` removes the first `n` bytes of the buffer from future buffers returned by `get_buffer`
 
 While lots of higher-level convenience functions are also defined, nearly all functionality is defined in terms of these three core functions.
 See the docstrings of these functions for details and edge cases.
@@ -20,19 +20,23 @@ Let's see two use cases to demonstrate how this core interface is used.
 ### Example: Reading N bytes
 Suppose we want a function `read_exact(io::AbstractBufReader, n::Int)` which reads exactly `n` bytes to a new `Vector{UInt8}`, unless `io` hits end-of-file (EOF).
 
+This functionality is already implemented as `read(::AbstractBufReader, ::Integer)`, so the below implementation is for illustration purposes.
+
 Since `io` itself controls how many bytes are filled with `fill_buffer` (typically whatever is the most efficient), we do this best by calling the functions above in a loop:
 
 ```julia
 function read_exact(io::AbstractBufReader, n::Int)
     n > -1 || throw(ArgumentError("n must be non-negative"))
-    result = sizehint!(UInt[], n)
+    result = sizehint!(UInt8[], n)
     remaining = n
     while !iszero(remaining)
         # Get the buffer to copy bytes from in order to read from `io`
         buffer = get_buffer(io)
         if isempty(buffer)
             # Fill new bytes into the buffer. This returns `0` if `io` if EOF,
-            # in which case we break to return the result
+            # in which case we break to return the result.
+            # `fill_buffer` can return `nothing` for some reader types, but only if
+            # the buffer is not empty.
             iszero(something(fill_buffer(io))) && break
             buffer = get_buffer(io)
         end
@@ -43,20 +47,26 @@ function read_exact(io::AbstractBufReader, n::Int)
         consume(io, mn)
         remaining -= mn
     end
-    result
+    return result
 end
 ```
 
 The code above may be simplified by using the convenience function [`get_nonempty_buffer`](@ref)
-or the higher level function [`read_all!`](@ref)
+or by simply calling the already-implemented `read(io, n)`.
 
 ### Example: Reading a line without intermediate allocations
-This example is different, because to avoid allocations, we need an entire line to be available
-in the buffer of the io.
+In this example, we want to buffer a full line in `io`'s buffer, and then return a view into the buffer
+representing that line.
+
+This function is an unusual use case, because we need to ensure the buffer is able to hold a full line.
+For most IO operations, we do not need, nor want to control exactly how much is buffered by `io`,
+since leaving that up to `io` is typically more efficient.
+
 Therefore, this is one of the rare cases where we may need to force `io` to grow its buffer.
 
 ```julia
 function get_line_view(io::AbstractBufReader)
+    # Which position to search for a newline from
     scan_from = 1
     while true
         buffer = get_buffer(io)

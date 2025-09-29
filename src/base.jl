@@ -59,20 +59,16 @@ function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
 end
 
 function Base.unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
-    p_stop = p + n
     p_start = p
-    while true
+    while p < (p_start + n)
         buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buf) && return (p - p_start) % Int
-        L = min(length(buf) % UInt, (p_stop - p))
-        GC.@preserve buf begin
-            unsafe_copyto!(p, pointer(buf), L)
-        end
+        isnothing(buf) && break
+        L = min(length(buf) % UInt, (p_start + n - p))
+        GC.@preserve buf unsafe_copyto!(p, pointer(buf), L)
         p += L
         @inbounds consume(x, L % Int)
-        (p ≥ p_stop) && return (p - p_start) % Int
     end
-    return 0 # unreachable
+    return (p - p_start) % Int
 end
 
 """
@@ -302,21 +298,6 @@ function Base.skip(io::AbstractBufReader, n::Integer)
         remaining -= mn
     end
     return (n - remaining) % Int
-end
-
-"""
-    skip_exact(io::AbstractBufReader, n::Integer)::Nothing
-
-Like `skip`, but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes could
-not be skipped.
-
-See also: [`Base.skip`](@ref)
-"""
-function skip_exact(io::AbstractBufReader, n::Integer)
-    n < 0 && throw(ArgumentError("Cannot skip negative amount"))
-    skipped = skip(io, n)
-    skipped == n || throw(IOError(IOErrorKinds.EOF))
-    return nothing
 end
 
 # Different logic than `copyline`, because the destination vector is owned by

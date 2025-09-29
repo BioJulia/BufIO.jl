@@ -11,6 +11,7 @@ makedocs(;
         "Writers" => "writers.md",
         "Types" => "types.md",
         "API reference" => "reference.md",
+        "Examples" => "examples.md",
     ],
     authors = "Jakob Nybo Nissen",
     checkdocs = :public,

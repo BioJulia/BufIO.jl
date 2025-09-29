@@ -350,6 +350,21 @@ function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
     return n_total_read
 end
 
+"""
+    skip_exact(io::AbstractBufReader, n::Integer)::Nothing
+
+Like `skip`, but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes could
+not be skipped.
+
+See also: [`Base.skip`](@ref)
+"""
+function skip_exact(io::AbstractBufReader, n::Integer)
+    n < 0 && throw(ArgumentError("Cannot skip negative amount"))
+    skipped = skip(io, n)
+    skipped == n || throw(IOError(IOErrorKinds.EOF))
+    return nothing
+end
+
 #########################
 
 # Types where write(io, x) is the same as copying x
