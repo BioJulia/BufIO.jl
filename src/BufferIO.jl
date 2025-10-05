@@ -57,6 +57,7 @@ module IOErrorKinds
     * `IsADirectory`: Resource is a directory when a non-directory was expected
     * `DirectoryNotEmpty`: Operation cannot succeed because it requires an empty directory
     * `InvalidFileName`: File name was invalid for platform, e.g. too long name, or invalid characters.
+    * `ClosedIO`: Indicates an operation was done on a closed IO.
     """
     @enum IOErrorKind::UInt8 begin
         ConsumeBufferError
@@ -71,6 +72,7 @@ module IOErrorKinds
         IsADirectory
         DirectoryNotEmpty
         InvalidFileName
+        ClosedIO
     end
 
     public ConsumeBufferError,
@@ -85,6 +87,7 @@ module IOErrorKinds
         IsADirectory,
         DirectoryNotEmpty,
         InvalidFileName
+    ClosedIO
 end
 
 using .IOErrorKinds: IOErrorKind

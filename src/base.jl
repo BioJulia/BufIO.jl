@@ -42,6 +42,7 @@ end
 
 """
     unsafe_read(io::AbstractBufReader, ref, nbytes::UInt)::Int
+    unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::UInt)::Int
 
 Copy `nbytes` from `io` into `ref`, returning the number of bytes copied.
 If `io` reached end of file, stop at EOF.
@@ -345,15 +346,21 @@ function Base.write(io::AbstractBufWriter, x::UInt8)
     return 1
 end
 
-function Base.write(io::AbstractBufWriter, x, xs...)
-    n_written = write(io, x)
+# N.B: At least two args to prevent a stackoverflow.
+function Base.write(io::AbstractBufWriter, x1, x2, xs...)
+    n_written = write(io, x1)
+    n_written += write(io, x2)
     for i in xs
         n_written += write(io, i)
     end
     return n_written
 end
 
-function Base.write(io::AbstractBufWriter, mem::Union{String, SubString{String}, PlainMemory})
+# TODO: Trait here for memory.
+function Base.write(
+        io::AbstractBufWriter,
+        mem::Union{String, SubString{String}, PlainMemory}
+    )
     so = sizeof(mem)
     offset = 0
     GC.@preserve mem begin
