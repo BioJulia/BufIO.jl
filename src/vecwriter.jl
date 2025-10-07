@@ -1,11 +1,141 @@
 """
-    VecWriter([vec::Vector{UInt8}]) <: AbstractBufWriter
+    ByteVector <: DenseVector{UInt8}
 
-Create an `AbstractBufWriter` backed by a `Vector{UInt8}`.
+A re-implementation of `Vector{UInt8}`. In future minor releases, this may change
+to be an alias of `Vector{UInt8}`.
+
+All Base methods implemented for `ByteVector` is guaranteed to have the same semantics
+as those for `Vector`. Futhermore, `ByteVector` supports:
+* `takestring!(::ByteVector)`
+* `Vector(::ByteVector)` 
+"""
+mutable struct ByteVector <: DenseVector{UInt8}
+    ref::MemoryRef{UInt8}
+    len::Int
+
+    global function unsafe_from_parts(ref::MemoryRef{UInt8}, len::Int)
+        return new(ref, len)
+    end
+end
+
+function ByteVector()
+    return unsafe_from_parts(memoryref(Memory{UInt8}()), 0)
+end
+
+function ByteVector(::UndefInitializer, len::Int)
+    return unsafe_from_parts(memoryref(Memory{UInt8}(undef, len)), len)
+end
+
+@inline function _takestring!(v::ByteVector)
+    s = GC.@preserve v unsafe_string(pointer(v), length(v))
+    # We defensively truncate here and reallocate the memory.
+    # Currently this is inefficient, but I want to be able to do zero-copy string creation
+    # in the future, and that will only be doable without breakage by reallocating the memory.
+    v.len = 0
+    v.ref = memoryref(Memory{UInt8}()) # note: a zero-sized memory usually does not allocate
+    return s
+end
+
+@static if hasmethod(parent, Tuple{MemoryRef})
+    get_memory(v::ByteVector) = parent(v.ref)
+else
+    get_memory(v::ByteVector) = v.ref.mem
+end
+
+Base.size(x::ByteVector) = (x.len,)
+Base.length(x::ByteVector) = x.len
+
+function Base.getindex(v::ByteVector, i::Integer)
+    i = Int(i)::Int
+    @boundscheck checkbounds(v, i)
+    ref = @inbounds memoryref(v.ref, i)
+    return @inbounds ref[]
+end
+
+function Base.setindex!(v::ByteVector, x, i::Integer)
+    @boundscheck checkbounds(v, i)
+    xT = convert(UInt8, x)::UInt8
+    ref = @inbounds memoryref(v.ref, i)
+    @inbounds ref[] = xT
+    return v
+end
+
+function Base.iterate(x::ByteVector, i::Int = 1)
+    ((i - 1) % UInt) < (length(x) % UInt) || return nothing
+    return (@inbounds x[i], i + 1)
+end
+
+function Base.push!(x::ByteVector, u::UInt8)
+    ensure_unused_space!(x, UInt(1))
+    xlen = x.len + 1
+    x.len = xlen
+    @inbounds x[xlen] = u
+    return x
+end
+
+function Base.append!(x::ByteVector, mem::MemoryView{UInt8})
+    ensure_unused_space!(x, length(mem) % UInt)
+    start_index = memindex(x.ref) + x.len
+    dst = @inbounds MemoryView(get_memory(x))[start_index:end]
+    @inbounds copyto!(dst, mem)
+    x.len += length(mem)
+    return x
+end
+
+Base.pointer(x::ByteVector) = Ptr{UInt8}(pointer(x.ref))
+
+Base.sizeof(x::ByteVector) = length(x)
+
+MemoryViews.MemoryKind(::Type{ByteVector}) = IsMemory{MutableMemoryView{UInt8}}()
+
+function MemoryViews.MemoryView(v::ByteVector)
+    return MemoryViews.unsafe_from_parts(v.ref, v.len)
+end
+
+function Base.Vector(v::ByteVector)
+    result = Vector{UInt8}(undef, length(v))
+    unsafe_copyto!(MemoryView(result), MemoryView(v))
+    return result
+end
+
+@static if isdefined(Base, :memoryindex)
+    memindex(x::MemoryRef) = memoryindex(x)
+else
+    memindex(x::MemoryRef) = Core.memoryrefoffset(x)
+end
+
+# If C = Current capacity (get_unflushed + get_buffer)
+# Then makes sure new capacity is overallocation(C + additional).
+# Do this by zeroing offset and, if necessary, reallocating memory
+function add_space_with_overallocation!(vec::ByteVector, additional::UInt)
+    current_mem = get_memory(vec)
+    new_size = overallocation_size(capacity(vec) % UInt + additional)
+    new_mem = if length(current_mem) ≥ new_size
+        current_mem
+    else
+        Memory{UInt8}(undef, new_size)
+    end
+    @inbounds copyto!(@inbounds(MemoryView(new_mem)[1:length(vec)]), MemoryView(vec))
+    vec.ref = memoryref(new_mem)
+    return nothing
+end
+
+# Ensure unused space is at least `space` bytes. Will overallocate
+function ensure_unused_space!(v::ByteVector, space::UInt)
+    us = unused_space(v)
+    us % UInt ≥ space && return nothing
+    space_to_add = space - us
+    return @noinline add_space_with_overallocation!(v, space_to_add)
+end
+
+
+"""
+    VecWriter
+
+An `AbstractBufWriter` backed by a [`ByteVector`](@ref).
 Read the (public) property `.vec` to get the vector back.
 
-This type is useful as an efficient string builder through `String(io.vec)`
-or `takestring!(io)` (the latter in Julia 1.13+).
+This type is useful as an efficient string builder through `takestring!(io)`.
 
 Functions `flush` and `close` do not affect the writer.
 
@@ -15,6 +145,12 @@ implicit (non-semantic) behaviour (e.g. memory reallocations or efficiency) of t
 For example, repeated and interleaved `push!(vec)` and `write(io, x)`
 may be less efficient, if one operation has memory allocation patterns
 that is suboptimal for the other operation.
+
+Create with one of the following constructors:
+* VecWriter([vec::Vector{UInt8}])
+* VecWriter(undef, ::Int)
+* VecWriter(::ByteVector)
+
 
 ```jldoctest
 julia> vw = VecWriter();
@@ -29,47 +165,37 @@ julia> String(vw.vec)
 ```
 """
 struct VecWriter <: AbstractBufWriter
-    vec::Vector{UInt8}
+    vec::ByteVector
 
-    # Suppress the default constructor that calls `convert`, since we don't
-    # want to copy the input vector if the type is wrong
-    VecWriter(vec::Vector{UInt8}) = new(vec)
+    VecWriter(v::ByteVector) = new(v)
 end
-
-get_ref(v::Vector) = Base.cconvert(Ptr, v)
-
-# In later Julia versions, use the generic method. In earlier, we can read
-# the field, since the field won't get retroactively removed.
-if hasmethod(parent, Tuple{MemoryRef})
-    get_memory(v::Vector) = parent(get_ref(v))
-else
-    get_memory(v::Vector) = get_ref(v).mem
-end
-
-# This is faster than Base's method because Base's doesn't
-# special-case zero. Also, this method does not handle pointer-ful
-# arrays, so is not fully generic over element type.
-unsafe_set_length!(v::Vector{UInt8}, n::Int) = setfield!(v, :size, (n,))
-
-# Note: memoryrefoffset is 1-based despite the name
-first_unused_memindex(v::Vector{UInt8}) = (length(v) + Core.memoryrefoffset(get_ref(v)))
-
-unused_space(v::Vector{UInt8}) = length(get_memory(v)) - first_unused_memindex(v) + 1
-
-capacity(v::Vector) = length(get_memory(v)) - Core.memoryrefoffset(get_ref(v)) + 1
 
 const DEFAULT_VECWIRTER_SIZE = 32
 
-function VecWriter()
-    vec = Vector{UInt8}(undef, DEFAULT_VECWIRTER_SIZE)
-    unsafe_set_length!(vec, 0)
+VecWriter() = VecWriter(undef, DEFAULT_VECWIRTER_SIZE)
+
+function VecWriter(::UndefInitializer, len::Int)
+    vec = ByteVector(undef, len)
+    vec.len = 0
     return VecWriter(vec)
+end
+
+function VecWriter(v::Vector{UInt8})
+    ref = Base.cconvert(Ptr, v)
+    return VecWriter(unsafe_from_parts(ref, length(v)))
 end
 
 function get_buffer(x::VecWriter)
     vec = x.vec
     return @inbounds MemoryView(get_memory(vec))[first_unused_memindex(vec):end]
 end
+
+# Note: memoryrefoffset is 1-based despite the name
+first_unused_memindex(v::ByteVector) = (length(v) + memindex(v.ref))
+
+unused_space(v::ByteVector) = length(get_memory(v)) - first_unused_memindex(v) + 1
+
+capacity(v::ByteVector) = length(get_memory(v)) - memindex(v.ref) + 1
 
 """
     get_nonempty_buffer(
@@ -108,7 +234,7 @@ function consume(x::VecWriter, n::Int)
         (n % UInt) > (unused_space(vec) % UInt) && throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
     veclen = length(vec)
-    unsafe_set_length!(vec, veclen + n)
+    vec.len = veclen + n
     return nothing
 end
 
@@ -116,30 +242,6 @@ function grow_buffer(io::VecWriter)
     initial_capacity = capacity(io.vec)
     @inline add_space_with_overallocation!(io.vec, UInt(1))
     return capacity(io.vec) - initial_capacity
-end
-
-# If C = Current capacity (get_unflushed + get_buffer)
-# Then makes sure new capacity is overallocation(C + additional).
-# Do this by zeroing offset and, if necessary, reallocating memory
-function add_space_with_overallocation!(vec::Vector{UInt8}, additional::UInt)
-    current_mem = get_memory(vec)
-    new_size = overallocation_size(capacity(vec) % UInt + additional)
-    new_mem = if length(current_mem) ≥ new_size
-        current_mem
-    else
-        Memory{UInt8}(undef, new_size)
-    end
-    @inbounds copyto!(@inbounds(MemoryView(new_mem)[1:length(vec)]), MemoryView(vec))
-    setfield!(vec, :ref, memoryref(new_mem))
-    return nothing
-end
-
-# Ensure unused space is at least `space` bytes. Will overallocate
-function ensure_unused_space!(v::Vector{UInt8}, space::UInt)
-    us = unused_space(v)
-    us % UInt ≥ space && return nothing
-    space_to_add = space - us
-    return @noinline add_space_with_overallocation!(v, space_to_add)
 end
 
 Base.close(::VecWriter) = nothing
@@ -174,14 +276,18 @@ function Base.seek(x::VecWriter, offset::Int)
     @boundscheck if !in(offset, 0:filesize(x))
         throw(IOError(IOErrorKinds.BadSeek))
     end
-    unsafe_set_length!(x.vec, offset)
+    x.vec.len = offset
     return x
 end
 
 Base.position(x::VecWriter) = filesize(x)
 
 if isdefined(Base, :takestring!)
-    Base.takestring!(io::VecWriter) = String(io.vec)
+    Base.takestring!(io::VecWriter) = _takestring!(io.vec)
+    Base.takestring!(v::ByteVector) = _takestring!(v)
+else
+    takestring!(io::VecWriter) = _takestring!(io.vec)
+    takestring!(v::ByteVector) = _takestring!(v)
 end
 
 ## Optimised write implementations

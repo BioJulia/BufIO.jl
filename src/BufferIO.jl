@@ -13,6 +13,7 @@ export AbstractBufReader,
     BufReader,
     BufWriter,
     VecWriter,
+    ByteVector,
     IOReader,
     CursorReader,
     IOError,
@@ -28,7 +29,8 @@ export AbstractBufReader,
     read_into!,
     read_all!,
     line_views,
-    skip_exact
+    skip_exact,
+    takestring!
 
 public LineViewIterator
 
@@ -415,9 +417,16 @@ end
 # Get the new size of a buffer grown from size `size`
 # Copied from Base
 function overallocation_size(size::UInt)
-    exp2 = (8 * sizeof(size) - leading_zeros(size)) % UInt
-    size += (1 << div(exp2 * 7, 8)) * 4 + div(size, 8)
-    return size = max(64, size % Int)
+    # compute maxsize = maxsize + 3*maxsize^(7/8) + maxsize/8
+    # for small n, we grow faster than O(n)
+    # for large n, we grow at O(n/8)
+    # and as we reach O(memory) for memory>>1MB,
+    # this means we end by adding about 10% of memory each time
+    # most commonly, this will take steps of 0-3-9-34 or 1-4-16-66 or 2-8-33
+    exp2 = sizeof(size) * 8 - leading_zeros(size)
+    eighth = div(size, 8)
+    log = (1 << div(exp2 * 7, 8)) * 3
+    return (size + log + eighth) % Int
 end
 
 include("base.jl")

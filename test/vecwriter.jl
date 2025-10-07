@@ -32,16 +32,14 @@ end
     @test !isempty(nonempty)
 
     # Remove vector content
-    s = String(vw.vec)
+    s = takestring!(vw.vec)
     @test isempty(vw.vec)
     @test isempty(get_buffer(vw))
     @test isempty(get_unflushed(vw))
 
-    if isdefined(Base, :takestring!)
-        vw = VecWriter(collect(b"abcde"))
-        @test takestring!(vw) == "abcde"
-        @test isempty(vw.vec)
-    end
+    vw = VecWriter(collect(b"abcde"))
+    @test takestring!(vw) == "abcde"
+    @test isempty(vw.vec)
 end
 
 @testset "specialized methods" begin
