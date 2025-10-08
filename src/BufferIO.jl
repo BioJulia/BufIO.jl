@@ -1,6 +1,12 @@
 module BufferIO
 
-using MemoryViews: MemoryViews, ImmutableMemoryView, MutableMemoryView, MemoryView
+using MemoryViews: MemoryViews,
+    ImmutableMemoryView,
+    MutableMemoryView,
+    MemoryView,
+    MemoryKind,
+    IsMemory,
+    NotMemory
 
 export AbstractBufReader,
     AbstractBufWriter,

@@ -357,26 +357,38 @@ function Base.write(io::AbstractBufWriter, x1, x2, xs...)
 end
 
 # TODO: Trait here for memory.
-function Base.write(
-        io::AbstractBufWriter,
-        mem::Union{String, SubString{String}, PlainMemory}
-    )
-    so = sizeof(mem)
-    offset = 0
-    GC.@preserve mem begin
-        src = Ptr{UInt8}(pointer(mem))
-        while offset < so
-            buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
-            isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
-            isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
-            mn = min(so - offset, length(buffer))
-            GC.@preserve buffer unsafe_copyto!(pointer(buffer), src, mn % UInt)
-            offset += mn
-            src += mn
-            @inbounds consume(io, mn)
-        end
+function Base.write(io::AbstractBufWriter, maybe_mem)
+    return _write(MemoryKind(typeof(maybe_mem)), io, maybe_mem)
+end
+
+function Base.write(io::AbstractBufWriter, s::Union{String, SubString{String}})
+    return write(io, codeunits(s))
+end
+
+function _write(::IsMemory{<:MemoryView{<:PlainTypes}}, io::AbstractBufWriter, mem)
+    mem = ImmutableMemoryView(mem)
+    return GC.@preserve mem write_from_pointer(io, Ptr{UInt8}(pointer(mem)), sizeof(mem) % UInt)
+end
+
+# Specialized method to prevent calling MemoryView(::String) which allocates
+# as of Julia 1.12.
+function write_string(io::AbstractBufWriter, s::Union{String, SubString{String}})
+    return GC.@preserve s write_from_pointer(io, pointer(s), sizeof(s) % UInt)
+end
+
+function write_from_pointer(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
+    remaining = n_bytes
+    while !iszero(remaining)
+        buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
+        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
+        isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
+        mn = min(remaining, length(buffer) % UInt)
+        GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, mn)
+        remaining -= mn
+        ptr += mn
+        @inbounds consume(io, mn % Int)
     end
-    return so
+    return n_bytes % Int
 end
 
 function Base.write(io::AbstractBufWriter, x::PlainTypes)
