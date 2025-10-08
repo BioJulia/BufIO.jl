@@ -187,7 +187,18 @@ end
 ## Optimised write implementations
 Base.write(io::VecWriter, x::UInt8) = (push!(io.vec, x); 1)
 
-function Base.write(io::VecWriter, mem::Union{String, SubString{String}, PlainMemory})
+function Base.write(io::VecWriter, x::Union{SubString{String}, String})
+    so = sizeof(x)
+    buffer = get_nonempty_buffer(io, so)
+    GC.@preserve buffer x begin
+        unsafe_copyto!(pointer(buffer), pointer(x), so)
+    end
+    @inbounds consume(io, so)
+    return so
+end
+
+function _write(::IsMemory{<:MemoryView{<:PlainTypes}}, io::VecWriter, mem)
+    mem = ImmutableMemoryView(mem)
     so = sizeof(mem)
     buffer = get_nonempty_buffer(io, so)
     GC.@preserve buffer mem begin
