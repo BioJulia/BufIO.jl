@@ -367,7 +367,7 @@ end
 
 function _write(::IsMemory{<:MemoryView{<:PlainTypes}}, io::AbstractBufWriter, mem)
     mem = ImmutableMemoryView(mem)
-    return GC.@preserve mem write_from_pointer(io, pointer(mem), sizeof(mem) % UInt)
+    return GC.@preserve mem write_from_pointer(io, Ptr{UInt8}(pointer(mem)), sizeof(mem) % UInt)
 end
 
 # Specialized method to prevent calling MemoryView(::String) which allocates
