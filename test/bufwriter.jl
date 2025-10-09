@@ -164,6 +164,19 @@ end
     buffer2 = get_nonempty_buffer(writer)
     @test buffer2 !== nothing  # Should grow or flush
     @test !isempty(buffer2)
+
+    # Two-arg method
+    writer = BufWriter(IOBuffer(), 3)
+    write(writer, 0x61)
+    buf = get_nonempty_buffer(writer, 2)
+    @test length(buf) == 2
+    @test get_unflushed(writer) == [0x61]
+    buf = get_nonempty_buffer(writer, 3)
+    @test length(buf) == 3
+    @test isempty(get_unflushed(writer))
+    write(writer, "abc")
+    buf = get_nonempty_buffer(writer, 101)
+    @test length(get_nonempty_buffer(writer)) ≥ 101
 end
 
 @testset "edge cases" begin

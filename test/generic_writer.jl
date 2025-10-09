@@ -202,3 +202,13 @@ end
         @test only(reinterpret(typeof(n), w.x.vec)) === n
     end
 end
+
+@testset "Write char" begin
+    io = GenericBufWriter()
+    @test write(io, '\0') == 1
+    @test write(io, 'P') == 1
+    @test write(io, '\x7f') == 1
+    @test write(io, 'æ') == 2
+    @test write(io, '😁') == 4
+    @test io.x.vec == b"\0P\x7fæ😁"
+end

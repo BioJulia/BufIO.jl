@@ -356,7 +356,6 @@ function Base.write(io::AbstractBufWriter, x1, x2, xs...)
     return n_written
 end
 
-# TODO: Trait here for memory.
 function Base.write(io::AbstractBufWriter, maybe_mem)
     return _write(MemoryKind(typeof(maybe_mem)), io, maybe_mem)
 end
@@ -368,12 +367,6 @@ end
 function _write(::IsMemory{<:MemoryView{<:PlainTypes}}, io::AbstractBufWriter, mem)
     mem = ImmutableMemoryView(mem)
     return GC.@preserve mem write_from_pointer(io, Ptr{UInt8}(pointer(mem)), sizeof(mem) % UInt)
-end
-
-# Specialized method to prevent calling MemoryView(::String) which allocates
-# as of Julia 1.12.
-function write_string(io::AbstractBufWriter, s::Union{String, SubString{String}})
-    return GC.@preserve s write_from_pointer(io, pointer(s), sizeof(s) % UInt)
 end
 
 function write_from_pointer(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
