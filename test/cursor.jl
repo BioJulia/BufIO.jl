@@ -106,6 +106,14 @@ end
     end
 end
 
+@testset "read_all!" begin
+    s = "abcdefghijklmnoq"
+    c = CursorReader(s)
+    mem = MemoryView(zeros(UInt8, 25))
+    @test read_all!(c, mem) == ncodeunits(s)
+    @test mem[1:ncodeunits(s)] == codeunits(s)
+end
+
 @testset "Misc cursor" begin
     io = CursorReader("abcef")
     @test read(io, UInt8) == UInt8('a')
