@@ -283,8 +283,8 @@ Base.filesize(io::BufWriter) = filesize(io.io)
 Get the zero-based stream position.
 
 If the stream position is `p` (zero-based), then the next byte written will be byte number
-`p + 1` (one-based) in the file. The stream position does account for buffered bytes, and
-therefore may exceed `filesize`.
+`p + 1` (one-based) in the file.
+The stream position does account for buffered (consumed, but unflushed) bytes, and therefore may exceed `filesize`.
 After calling `flush`, `position` must be in `0:filesize(io)`, if `filesize` is defined.
 """
 function Base.position(io::BufWriter)
