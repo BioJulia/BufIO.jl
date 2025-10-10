@@ -28,11 +28,11 @@ end
 
 # Forward basic I/O methods
 for f in [
-    :close,
-    :flush,
-    :position,
-    :filesize,
-]
+        :close,
+        :flush,
+        :position,
+        :filesize,
+    ]
     @eval Base.$(f)(x::IOWriter) = $(f)(x.x)
 end
 
@@ -40,8 +40,19 @@ end
 Base.write(x::IOWriter, y::UInt8) = write(x.x, y)
 Base.write(x::IOWriter, data) = write(x.x, data)
 Base.write(x::IOWriter, data::Union{String, SubString{String}}) = write(x.x, data)
+Base.write(x::IOWriter, data::StridedArray) = write(x.x, data)
 Base.write(x::IOWriter, data::Base.CodeUnits) = write(x.x, data.s)
 Base.write(x::IOWriter, x1, x2, xs...) = write(x.x, x1, x2, xs...)
+
+Base.write(
+    x::IOWriter, y::Union{
+        Int16, UInt16,
+        Int32, UInt32,
+        Int64, UInt64,
+        Int128, UInt128,
+        Float16, Float32, Float64,
+    }
+) = write(x.x, y)
 
 # Print methods
 Base.print(x::IOWriter, args...) = print(x.x, args...)
