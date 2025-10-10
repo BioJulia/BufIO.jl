@@ -258,12 +258,8 @@ Increase the amount of bytes in the writeable buffer of `io` if possible, return
 the number of bytes added. After calling `grow_buffer` and getting `n`,
 the buffer obtained by `get_buffer` should have `n` more bytes.
 
-Unless stated otherwise for a specific subtype of `AbstractBufReader`, this function will
-grow the buffer by:
-
-1 If there is data in the buffer of `io`, flush it to the underlying io if possible.
-2 Else, if `io`'s buffer can be expanded, do so.
-3 Else, do not grow buffer and return zero
+The buffer is usually grown by flushing the buffer, expanding or reallocating the buffer.
+If none of these can grow the buffer, return zero.
 
 !!! note
     Idiomatically, users should not call `grow_buffer` when the buffer is not empty,

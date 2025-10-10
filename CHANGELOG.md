@@ -10,6 +10,9 @@ Major breaking change.
 ## New features
 * On Julia 1.11 and 1.12, a new function `takestring!` has been added
 
+## Other
+* The requirements of growth behaviour for `grow_buffer` has been loosened
+
 # 0.1.1
 * Add ClosedIO IOErrorKind
 * Document existing method `unsafe_read(::AbstractBufReader, ::Ptr{UInt8}, ::UInt)`
