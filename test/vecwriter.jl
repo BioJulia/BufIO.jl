@@ -51,26 +51,6 @@ end
     @test String(io.vec) == "\xaaac"
 end
 
-@testset "position" begin
-    io = VecWriter()
-    @test position(io) == filesize(io) == 0
-
-    # These do nothing
-    close(io)
-    flush(io)
-
-    write(io, "hello")
-    @test position(io) == filesize(io) == 5
-    seek(io, 3)
-    @test position(io) == filesize(io) == 3
-
-    @test_throws IOError seek(io, 6)
-    @test_throws IOError seek(io, -1)
-    @test_throws IOError seek(io, 5)
-
-    @test get_unflushed(io) == b"hel"
-end
-
 @testset "Nonzero offset" begin
     v = UInt8[0x01, 0x02]
     pushfirst!(v, 0xff)

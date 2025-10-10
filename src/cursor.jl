@@ -35,6 +35,15 @@ fill_buffer(::CursorReader) = 0
 
 get_buffer(x::CursorReader) = @inbounds x.data[(x.offset + 1):end]
 
+"""
+   Base.position(io::AbstractBufReader)::Int
+
+Get the zero-based stream position.
+
+If the stream position is `p` (zero-based), then the next byte read will be byte
+number `p + 1` (one-based).
+The value of `position` must be in `0:filesize(io)`, if `filesize` is defined.
+"""
 Base.position(x::CursorReader) = x.offset
 
 """
