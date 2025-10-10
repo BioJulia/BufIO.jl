@@ -231,6 +231,7 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
     buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
     buffer === nothing && return out
     while true
+        buffer::ImmutableMemoryView{UInt8}
         pos = findfirst(==(0x0a), buffer)
         if pos === nothing
             to_write = if !keep && last(buffer) == 0x0d
