@@ -88,6 +88,14 @@ end
     # Test writing float
     @test write(io_writer, Float64(3.14)) == 8
     @test reinterpret(Float64, vec_writer.vec[(end - 7):end])[1] == 3.14
+
+    # Test writing MemoryView
+    vec_writer = VecWriter()
+    io_writer = IOWriter(vec_writer)
+    @test write(io_writer, MemoryView(b"abc")) == 3
+    @test write(io_writer, MemoryView(b"d")) == 1
+    @test write(io_writer, MemoryView(b"ef")) == 2
+    @test vec_writer.vec == b"abcdef"
 end
 
 @testset "IOWriter write String" begin
@@ -165,6 +173,53 @@ end
     n3 = write(io_writer3, UInt8(1), UInt8(2), UInt8(3), UInt8(4))
     @test n3 == 4
     @test vec_writer3.vec == [1, 2, 3, 4]
+end
+
+@testset "IOWriter seek with BufWriter wrapping IOBuffer" begin
+    inner_io = IOBuffer()
+    buf_writer = BufWriter(inner_io)
+    io_writer = IOWriter(buf_writer)
+
+    # Write initial data and flush
+    write(io_writer, "0123456789")
+    flush(io_writer)
+    @test position(io_writer) == 10
+    @test filesize(io_writer) == 10
+
+    # Seek to beginning
+    result = seek(io_writer, 0)
+    @test result === io_writer  # seek returns the IOWriter itself
+    @test position(io_writer) == 0
+
+    # Overwrite data at beginning
+    write(io_writer, "AB")
+    flush(io_writer)
+    seekstart(inner_io)
+    @test read(inner_io, String) == "AB23456789"
+
+    # Seek to middle
+    seek(io_writer, 5)
+    @test position(io_writer) == 5
+    write(io_writer, "XYZ")
+    flush(io_writer)
+    seekstart(inner_io)
+    @test read(inner_io, String) == "AB234XYZ89"
+
+    # Seek to end
+    seek(io_writer, filesize(io_writer))
+    @test position(io_writer) == filesize(io_writer)
+    @test position(io_writer) == 10
+    write(io_writer, "END")
+    flush(io_writer)
+    seekstart(inner_io)
+    @test read(inner_io, String) == "AB234XYZ89END"
+    @test filesize(io_writer) == 13
+
+    # Seek with buffered (unflushed) data
+    seek(io_writer, 0)
+    write(io_writer, "HELLO")  # Not flushed yet
+    @test position(io_writer) == 5  # Position includes buffered data
+    @test filesize(io_writer) == 13  # Filesize doesn't include buffered data
 end
 
 @testset "IOWriter edge cases" begin
