@@ -4,10 +4,13 @@
 A re-implementation of `Vector{UInt8}`. In future minor releases, this may change
 to be an alias of `Vector{UInt8}`.
 
+Note that `String(x::ByteVector)` will truncate `x`, to mirror the behaviour of
+`String(::Vector{UInt8})`. It is recommended to use `takestring!` instead.
+
 All Base methods implemented for `ByteVector` is guaranteed to have the same semantics
 as those for `Vector`. Futhermore, `ByteVector` supports:
 * `takestring!(::ByteVector)`
-* `Vector(::ByteVector)` 
+* `Vector(::ByteVector)`
 """
 mutable struct ByteVector <: DenseVector{UInt8}
     ref::MemoryRef{UInt8}
@@ -35,6 +38,9 @@ end
     v.ref = memoryref(Memory{UInt8}()) # note: a zero-sized memory usually does not allocate
     return s
 end
+
+# This is for forward compatibility so we can switch in Vector{UInt8} in the future.
+Base.String(v::ByteVector) = _takestring!(v)
 
 @static if hasmethod(parent, Tuple{MemoryRef})
     get_memory(v::ByteVector) = parent(v.ref)
@@ -99,7 +105,7 @@ function Base.Vector(v::ByteVector)
 end
 
 @static if isdefined(Base, :memoryindex)
-    memindex(x::MemoryRef) = memoryindex(x)
+    memindex(x::MemoryRef) = Base.memoryindex(x)
 else
     memindex(x::MemoryRef) = Core.memoryrefoffset(x)
 end
