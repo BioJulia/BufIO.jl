@@ -253,41 +253,6 @@ end
 Base.close(::VecWriter) = nothing
 Base.flush(::VecWriter) = nothing
 
-"""
-    filesize(x::AbstractBufWriter)::Int
-
-Get the total size, in bytes, of data written to `io`. This includes previously flushed data,
-and data comitted by `consume` but not flushed.
-Types implementing `filesize` should also implement `seek`.
-"""
-Base.filesize(x::VecWriter) = length(x.vec)
-
-"""
-    seek(io::AbstractBufWriter, offset::Int) -> io
-
-Seek `io` to the zero-based position `offset`.
-
-Valid values for `offset` are in `0:filesize(io)`, if `filesize` is defined.
-Seeking outside these bounds throws an `IOError` of kind `BadSeek`.
-
-If seeking to before the current position (as defined by `position`), data between
-the new and the previous position need not be changed, and the underlying file or IO
-need not immediately be truncated. However, new write operations should write (or
-overwrite) data at the new position.
-
-This method is not generically defined for `AbstractBufWriter`. Implementors of `seek`
-should also define `filesize(io)` and `position(io)`
-"""
-function Base.seek(x::VecWriter, offset::Int)
-    @boundscheck if !in(offset, 0:filesize(x))
-        throw(IOError(IOErrorKinds.BadSeek))
-    end
-    x.vec.len = offset
-    return x
-end
-
-Base.position(x::VecWriter) = filesize(x)
-
 if isdefined(Base, :takestring!)
     Base.takestring!(io::VecWriter) = _takestring!(io.vec)
     Base.takestring!(v::ByteVector) = _takestring!(v)

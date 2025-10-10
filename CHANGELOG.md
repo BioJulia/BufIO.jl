@@ -6,12 +6,18 @@ Major breaking change.
   `ByteVector`. This is so the code no longer relies on Base internals.
   `ByteVector` is largely backwards compatible with `Vector{UInt8}`, and is
   guaranteed forward compatible. It may be aliased to `Vector{UInt8}` in the future.
+* The definition of `filesize(::AbstractBufWriter)` has changed, and now does not
+  include unflushed, but committed data. Further, implementers should also
+  implement `position`
+* The definition of `seek(::AbstractBufWriter)` has changed, and it must now also
+  flush before seeking.
 
 ## New features
 * On Julia 1.11 and 1.12, a new function `takestring!` has been added
 
 ## Other
 * The requirements of growth behaviour for `grow_buffer` has been loosened
+* The definition of `position` has been clarified
 
 # 0.1.1
 * Add ClosedIO IOErrorKind
