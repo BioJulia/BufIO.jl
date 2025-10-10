@@ -233,3 +233,56 @@ function consume(x::BufWriter, n::Int)
     x.consumed += n
     return nothing
 end
+
+"""
+    seek(io::AbstractBufWriter, offset::Int) -> io
+
+Flush `io`, then seek `io` to the zero-based position `offset`.
+
+Valid values for `offset` are in `0:filesize(io)`, where `filesize` is after the flush.
+Seeking outside these bounds throws an `IOError` of kind `BadSeek`.
+Seeking a flushed stream should not change `filesize`. 
+
+If seeking to before the current position (as defined by `position`), data between
+the new and the previous position need not be changed, and the underlying file or IO
+need not immediately be truncated. However, new write operations should write (or
+overwrite) data at the new position.
+
+This method is not generically defined for `AbstractBufWriter`. Implementors of `seek`
+should also define `filesize(io)` and `position(io)`
+"""
+function Base.seek(io::BufWriter, offset::Int)
+    flush(io)
+    # TODO: How should filesize be defined? Must be without the buffer.
+    fz = filesize(io.io)
+    in(offset, 0:fz) || throw(IOError(IOErrorKinds.BadSeek))
+    seek(io.io, offset)
+    return io
+end
+
+"""
+    filesize(io::AbstractBufWriter)::Int
+
+Get the filesize of `io`, in bytes.
+
+The filesize is understood as the number of bytes flushed to the underlying resource
+of `io`.
+The filesize does not depend on, and does not include, the number of buffered bytes
+
+Types implementing `filesize` should also implement `seek` and `position`.
+"""
+Base.filesize(io::BufWriter) = filesize(io.io)
+
+"""
+   Base.position(io::AbstractBufWriter)::Int
+
+Get the zero-based stream position.
+
+If the stream position is `p` (zero-based), then the next byte written will be byte number
+`p + 1` (one-based) in the file. The stream position does account for buffered bytes, and
+therefore may exceed `filesize`.
+"""
+function Base.position(io::BufWriter)
+    basepos = position(io.io)
+    return basepos + io.first_unused_index - 1
+end
