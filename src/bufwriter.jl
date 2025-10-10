@@ -287,7 +287,4 @@ If the stream position is `p` (zero-based), then the next byte written will be b
 The stream position does account for buffered (consumed, but unflushed) bytes, and therefore may exceed `filesize`.
 After calling `flush`, `position` must be in `0:filesize(io)`, if `filesize` is defined.
 """
-function Base.position(io::BufWriter)
-    basepos = position(io.io)
-    return basepos + io.first_unused_index - 1
-end
+Base.position(io::BufWriter) = position(io.io) + io.consumed
