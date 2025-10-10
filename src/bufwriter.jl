@@ -239,9 +239,11 @@ end
 
 Flush `io`, then seek `io` to the zero-based position `offset`.
 
-Valid values for `offset` are in `0:filesize(io)`, where `filesize` is after the flush.
+Valid values for `offset` are in `0:filesize(io)`, if `filesize(io)` is defined.
+The filesize  is computed *after* the flush.
 Seeking outside these bounds throws an `IOError` of kind `BadSeek`.
-Seeking a flushed stream should not change `filesize`. 
+Seeking should only change the filesize through its flush, so seeking an already-flushed
+stream should not change the filesize.
 
 If seeking to before the current position (as defined by `position`), data between
 the new and the previous position need not be changed, and the underlying file or IO
@@ -266,8 +268,10 @@ end
 Get the filesize of `io`, in bytes.
 
 The filesize is understood as the number of bytes flushed to the underlying resource
-of `io`.
-The filesize does not depend on, and does not include, the number of buffered bytes
+of `io`, and which can be retrived by re-reading the data (so e.g. some streams like
+`devnull` may have a filesize of zero, even if many bytes was flushed to it.)
+The filesize does not depend on, and does not include, the number of buffered and
+unflushed bytes.
 
 Types implementing `filesize` should also implement `seek` and `position`.
 """
@@ -281,6 +285,7 @@ Get the zero-based stream position.
 If the stream position is `p` (zero-based), then the next byte written will be byte number
 `p + 1` (one-based) in the file. The stream position does account for buffered bytes, and
 therefore may exceed `filesize`.
+After calling `flush`, `position` must be in `0:filesize(io)`, if `filesize` is defined.
 """
 function Base.position(io::BufWriter)
     basepos = position(io.io)

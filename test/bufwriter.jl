@@ -281,6 +281,124 @@ end
     @test length(parent(get_buffer(writer))) == 3
 end
 
+@testset "position and filesize" begin
+    # Test initial position and filesize
+    io = IOBuffer()
+    writer = BufWriter(io, 10)
+    @test position(writer) == 0
+    @test filesize(writer) == 0
+
+    # Write some data (buffered, not flushed)
+    write(writer, "hello")
+    @test position(writer) == 5  # Position includes buffered data
+    @test filesize(writer) == 0  # Filesize does not include buffered data
+
+    # Flush and check again
+    flush(writer)
+    @test position(writer) == 5
+    @test filesize(writer) == 5
+
+    # Write more data
+    write(writer, " world")
+    @test position(writer) == 11
+    @test filesize(writer) == 5  # Still only flushed data
+
+    # Partial flush via shallow_flush
+    shallow_flush(writer)
+    @test position(writer) == 11
+    @test filesize(writer) == 11
+
+    # Write after flush
+    write(writer, "!")
+    @test position(writer) == 12
+    @test filesize(writer) == 11
+
+    close(writer)
+end
+
+@testset "seek functionality" begin
+    # Test basic seeking
+    io = IOBuffer()
+    writer = BufWriter(io, 10)
+
+    # Write initial data
+    write(writer, "0123456789")
+    flush(writer)
+    @test filesize(writer) == 10
+
+    # Seek to beginning
+    seek(writer, 0)
+    @test position(writer) == 0
+    write(writer, "AB")
+    flush(writer)
+    seekstart(io)
+    @test read(io, String) == "AB23456789"
+
+    # Seek to middle
+    seek(writer, 5)
+    @test position(writer) == 5
+    write(writer, "XYZ")
+    flush(writer)
+    seekstart(io)
+    @test read(io, String) == "AB234XYZ89"
+
+    # Seek to end
+    seek(writer, filesize(writer))
+    @test position(writer) == filesize(writer)
+    write(writer, "END")
+    flush(writer)
+    seekstart(io)
+    @test read(io, String) == "AB234XYZ89END"
+
+    close(writer)
+
+    # Test seeking with buffered data
+    io2 = IOBuffer()
+    writer2 = BufWriter(io2, 10)
+    write(writer2, "hello")
+    @test position(writer2) == 5
+    @test filesize(writer2) == 0  # Not flushed yet
+
+    # Seek should flush first
+    seek(writer2, 0)
+    @test position(writer2) == 0
+    @test filesize(writer2) == 5  # Now flushed
+    write(writer2, "HELLO")
+    flush(writer2)
+    seekstart(io2)
+    @test read(io2, String) == "HELLO"
+
+    close(writer2)
+
+    # Test invalid seeks
+    io3 = IOBuffer()
+    writer3 = BufWriter(io3)
+    write(writer3, "test")
+    flush(writer3)
+
+    @test_throws IOError seek(writer3, -1)
+    @test_throws IOError seek(writer3, filesize(writer3) + 1)
+
+    # Verify error kind
+    try
+        seek(writer3, -1)
+        @test false  # Should not reach
+    catch e
+        @test e isa IOError
+        @test e.kind == IOErrorKinds.BadSeek
+    end
+
+    try
+        seek(writer3, 100)
+        @test false  # Should not reach
+    catch e
+        @test e isa IOError
+        @test e.kind == IOErrorKinds.BadSeek
+    end
+
+    close(writer3)
+end
+
 @testset "Automatic closing" begin
     io = IOBuffer()
     try
