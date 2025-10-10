@@ -30,14 +30,14 @@ julia> get_unflushed(wtr)
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
     io::T
     buffer::Memory{UInt8}
-    first_unused_index::Int
+    consumed::Int
     is_closed::Bool
 
     function BufWriter{T}(io::T, mem::Memory{UInt8}) where {T <: IO}
         if isempty(mem)
             throw(ArgumentError("BufReader cannot be created with empty buffer"))
         end
-        return new{T}(io, mem, 1, false)
+        return new{T}(io, mem, 0, false)
     end
 end
 
@@ -83,11 +83,11 @@ function BufWriter(f, io::IO, buffer_size::Int = 4096)
 end
 
 function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
-    return @inbounds MemoryView(x.buffer)[x.first_unused_index:end]
+    return @inbounds MemoryView(x.buffer)[(x.consumed + 1):end]
 end
 
 function get_nonempty_buffer(x::BufWriter, min_size::Int)
-    n_avail = length(x.buffer) - x.first_unused_index + 1
+    n_avail = length(x.buffer) - x.consumed
     n_avail ≥ min_size && return get_buffer(x)
     return _get_nonempty_buffer(x, min_size)
 end
@@ -103,7 +103,7 @@ end
 end
 
 function get_unflushed(x::BufWriter)::MutableMemoryView{UInt8}
-    return @inbounds MemoryView(x.buffer)[1:(x.first_unused_index - 1)]
+    return @inbounds MemoryView(x.buffer)[1:(x.consumed)]
 end
 
 """
@@ -133,11 +133,11 @@ julia> String(take!(io))
 ```
 """
 function shallow_flush(x::BufWriter)::Int
-    to_flush = x.first_unused_index - 1
+    to_flush = x.consumed
     if !iszero(to_flush)
         used = @inbounds ImmutableMemoryView(x.buffer)[1:to_flush]
         write(x.io, used)
-        x.first_unused_index = 1
+        x.consumed = 0
     end
     return to_flush
 end
@@ -188,7 +188,7 @@ true
 function resize_buffer(x::BufWriter, n::Int)
     length(x.buffer) == n && return x
     n < 1 && throw(ArgumentError("Buffer size must be at least 1"))
-    n_buffered = x.first_unused_index - 1
+    n_buffered = x.consumed
     if n < n_buffered
         throw(ArgumentError("Buffer size smaller than current number of buffered bytes"))
     end
@@ -227,9 +227,9 @@ function Base.close(x::BufWriter)
 end
 
 function consume(x::BufWriter, n::Int)
-    @boundscheck if (n % UInt) > (length(x.buffer) - x.first_unused_index + 1) % UInt
+    @boundscheck if (n % UInt) > (length(x.buffer) - x.consumed) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
-    x.first_unused_index += n
+    x.consumed += n
     return nothing
 end
