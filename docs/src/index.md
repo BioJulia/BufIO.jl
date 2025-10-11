@@ -23,6 +23,7 @@ Beside the new interfaces, BufferIO also provides a small set of basic types to 
 * `BufWriter <: AbstractBufWriter`: A type that wraps a `Base.IO` to provide the `AbstractBufWriter` interface
 * `CursorReader <: AbstractBufReader`: Wrap any contiguous, memory of bytes into a stateful reader
 * `IOReader <: Base.IO`: A type that wraps an `AbstractBufReader` and provides the `Base.IO` interface
+* `IOWriter <: Base.IO`: A type that wraps an `AbstractBufWriter` and provides the `Base.IO` interface
 * `VecWriter <: AbstractBufWriter`: A faster and simpler alternative to IOBuffer usable e.g. to build strings.
 
 ## Examples

@@ -35,3 +35,7 @@ end
 @testset "IOReader" begin
     include("ioreader.jl")
 end
+
+@testset "IOWriter" begin
+    include("iowriter.jl")
+end

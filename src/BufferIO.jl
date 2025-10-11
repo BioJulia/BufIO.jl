@@ -15,6 +15,7 @@ export AbstractBufReader,
     VecWriter,
     ByteVector,
     IOReader,
+    IOWriter,
     CursorReader,
     IOError,
     IOErrorKinds,
@@ -431,6 +432,7 @@ include("bufwriter.jl")
 include("lineiterator.jl")
 include("cursor.jl")
 include("ioreader.jl")
+include("iowriter.jl")
 include("vecwriter.jl")
 
 end # module BufferIO
