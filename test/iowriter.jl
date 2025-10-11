@@ -132,6 +132,14 @@ end
     @test String(vec_writer3.vec) == unicode_str
 end
 
+@testset "IOWriter write Char" begin
+    io_writer = IOWriter(VecWriter())
+    @test write(io_writer, 'a', 'æ') == 3
+    @test write(io_writer, '\0') == 1
+    @test write(io_writer, '北') == 3
+    @test String(io_writer.x.vec) == "aæ\0北"
+end
+
 @testset "IOWriter write CodeUnits" begin
     vec_writer = VecWriter()
     io_writer = IOWriter(vec_writer)
