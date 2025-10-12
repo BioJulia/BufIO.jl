@@ -194,7 +194,7 @@ function resize_buffer(x::BufWriter, n::Int)
     end
     new_buffer = Memory{UInt8}(undef, n)
     if !iszero(n_buffered)
-        dst = @inbounds MemoryView(new_buffer)[1:n_buffered]
+        dst = @inbounds MemoryView(new_buffer)
         src = @inbounds MemoryView(x.buffer)[1:n_buffered]
         @inbounds copyto!(dst, src)
     end
@@ -255,7 +255,6 @@ should also define `filesize(io)` and `position(io)`
 """
 function Base.seek(io::BufWriter, offset::Int)
     flush(io)
-    # TODO: How should filesize be defined? Must be without the buffer.
     fz = filesize(io.io)
     in(offset, 0:fz) || throw(IOError(IOErrorKinds.BadSeek))
     seek(io.io, offset)

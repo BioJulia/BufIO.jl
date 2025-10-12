@@ -1,16 +1,16 @@
 """
     ByteVector <: DenseVector{UInt8}
 
-A re-implementation of `Vector{UInt8}`. In future minor releases, this may change
-to be an alias of `Vector{UInt8}`.
+A re-implementation of `Vector{UInt8}` that only supports a subset of its methods.
+In future minor releases, this may change to be an alias of `Vector{UInt8}`.
 
 Note that `String(x::ByteVector)` will truncate `x`, to mirror the behaviour of
 `String(::Vector{UInt8})`. It is recommended to use `takestring!` instead.
 
 All Base methods implemented for `ByteVector` is guaranteed to have the same semantics
 as those for `Vector`. Futhermore, `ByteVector` supports:
-* `takestring!(::ByteVector)`
-* `Vector(::ByteVector)`
+* `takestring!(::ByteVector)` even on Julia < 1.13, whereas `takestring!(::Vector{UInt8})`
+  is only defined from Julia 1.13 onwards.
 """
 mutable struct ByteVector <: DenseVector{UInt8}
     ref::MemoryRef{UInt8}
@@ -136,9 +136,9 @@ end
 
 
 """
-    VecWriter
+    VecWriter <: AbstractBufWriter
 
-An `AbstractBufWriter` backed by a [`ByteVector`](@ref).
+A writer backed by a [`ByteVector`](@ref).
 Read the (public) property `.vec` to get the vector back.
 
 This type is useful as an efficient string builder through `takestring!(io)`.
@@ -156,7 +156,6 @@ Create with one of the following constructors:
 * VecWriter([vec::Vector{UInt8}])
 * VecWriter(undef, ::Int)
 * VecWriter(::ByteVector)
-
 
 ```jldoctest
 julia> vw = VecWriter();
@@ -208,7 +207,8 @@ capacity(v::ByteVector) = length(get_memory(v)) - memindex(v.ref) + 1
         io::AbstractBufWriter, min_size::Int
     )::Union{Nothing, MutableMemoryView{UInt8}}
 
-Get a buffer of at least size `max(min_size, 1)`.
+Get a buffer of at least size `max(min_size, 1)`, or `nothing` if that is
+not possible.
 
 This method is optionally implemented for subtypes of `AbstractBufWriter`,
 and is typically only implemented for types which do not flush their data to an
