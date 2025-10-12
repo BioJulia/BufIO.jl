@@ -343,6 +343,40 @@ function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
     return io.vec
 end
 
+"""
+    unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
+
+Write `nbytes` bytes from `ref` (converted to a pointer) to `io`,
+and return `Int(nbytes)`.
+If `io` does not have capacity to write more bytes, throw an `IOError(IOErrorKinds.EOF)`.
+
+!!! warning
+    Safety: If `ref` is a pointer, the caller is responsible for ensuring that the
+    pointer is valid, GC protected, and points to at least `nbytes` data of readable memory.
+"""
+function Base.unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
+    cval = Base.cconvert(Ptr{UInt8}, ref)
+    GC.@preserve cval begin
+        ptr = Base.unsafe_convert(Ptr{UInt8}, cval)::Ptr{UInt8}
+        return unsafe_write(io, ptr, nbytes)
+    end
+end
+
+function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
+    remaining = n_bytes
+    while !iszero(remaining)
+        buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
+        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
+        isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
+        mn = min(remaining, length(buffer) % UInt)
+        GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, mn)
+        remaining -= mn
+        ptr += mn
+        @inbounds consume(io, mn % Int)
+    end
+    return n_bytes % Int
+end
+
 function Base.write(io::AbstractBufWriter, x::UInt8)
     buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
     isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
@@ -370,23 +404,7 @@ function Base.write(io::AbstractBufWriter, s::Union{String, SubString{String}})
 end
 
 function _write(::IsMemory{<:MemoryView{<:PlainTypes}}, io::AbstractBufWriter, mem)
-    mem = ImmutableMemoryView(mem)
-    return GC.@preserve mem write_from_pointer(io, Ptr{UInt8}(pointer(mem)), sizeof(mem) % UInt)
-end
-
-function write_from_pointer(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
-    remaining = n_bytes
-    while !iszero(remaining)
-        buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
-        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
-        isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
-        mn = min(remaining, length(buffer) % UInt)
-        GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, mn)
-        remaining -= mn
-        ptr += mn
-        @inbounds consume(io, mn % Int)
-    end
-    return n_bytes % Int
+    return unsafe_write(io, mem, sizeof(mem) % UInt)
 end
 
 function Base.write(io::AbstractBufWriter, x::PlainTypes)

@@ -154,6 +154,38 @@ end
     @test io4.x.vec == large_arr
 end
 
+@testset "unsafe_write" begin
+    # Test basic unsafe_write with array
+    io = GenericBufWriter()
+    arr = UInt8[0x48, 0x65, 0x6c, 0x6c, 0x6f]  # "Hello"
+    n_written = unsafe_write(io, arr, UInt(5))
+    @test n_written == 5
+    @test String(io.x.vec) == "Hello"
+
+    # Test with pointer directly
+    io2 = GenericBufWriter()
+    data = b"World!"
+    GC.@preserve data begin
+        ptr = pointer(data)
+        n_written2 = unsafe_write(io2, ptr, UInt(6))
+        @test n_written2 == 6
+        @test String(io2.x.vec) == "World!"
+    end
+
+    # Test writing zero bytes
+    io3 = GenericBufWriter()
+    n_written3 = unsafe_write(io3, UInt8[], UInt(0))
+    @test n_written3 == 0
+    @test isempty(io3.x.vec)
+
+    # Test writing partial array
+    io4 = GenericBufWriter()
+    arr4 = collect(b"abcdefgh")
+    n_written4 = unsafe_write(io4, arr4, UInt(4))
+    @test n_written4 == 4
+    @test String(io4.x.vec) == "abcd"
+end
+
 @testset "print(::T, ::SubString)" begin
     io = GenericBufWriter()
 

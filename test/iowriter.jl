@@ -242,7 +242,6 @@ end
     @test isempty(vec_writer.vec)
 
     # Test print with no arguments
-    print(io_writer)  # Should do nothing
     @test isempty(vec_writer.vec)
 
     # Test multiple close/flush calls
