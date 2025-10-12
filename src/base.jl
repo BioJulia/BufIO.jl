@@ -231,7 +231,6 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
     buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
     buffer === nothing && return out
     while true
-        buffer::ImmutableMemoryView{UInt8}
         pos = findfirst(==(0x0a), buffer)
         if pos === nothing
             to_write = if !keep && last(buffer) == 0x0d
@@ -248,7 +247,7 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
                         buffer
                     else
                         # Else, we need to fill in more bytes
-                        buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
+                        buffer = get_nonempty_buffer(from)::ImmutableMemoryView{UInt8}
                         continue
                     end
                 else
@@ -260,8 +259,13 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
             write(out, to_write)
             @inbounds consume(from, length(to_write))
             fill_buffer(from)
-            buffer = get_nonempty_buffer(from)
-            isnothing(buffer) && return out
+            # This let-trick works around a compiler limitation and ensures it infers the type
+            # of buffer in this loop.
+            buffer = let
+                b = get_nonempty_buffer(from)
+                isnothing(b) && return out
+                b
+            end
         else
             buf = @inbounds buffer[1:pos]
             buf = keep ? buf : _chomp(buf)

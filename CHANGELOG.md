@@ -13,6 +13,8 @@ Major breaking change.
   flush before seeking.
 
 ## New features
+* New type `IOWriter <: IO` that wraps an `AbstractBufWriter` and forwards its methods,
+  while being a subtype of `IO`.
 * On Julia 1.11 and 1.12, a new function `takestring!` has been added
 
 ## Other
