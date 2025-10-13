@@ -1,3 +1,6 @@
+# 0.2.1
+* Add methods for `unsafe_write` for AbstractBufWriter
+
 # 0.2.0
 Major breaking change.
 
