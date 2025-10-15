@@ -132,6 +132,45 @@ end
     return get_buffer(x)
 end
 
+"""
+    get_unflushed(io::AbstractBufWriter)::MutableMemoryView{UInt8}
+
+Return a view into the buffered data already written to `io` and `consume`d,
+but not yet flushed to its underlying IO.
+
+Bytes not appearing in the buffer may not be completely flushed
+if there are more layers of buffering in the IO wrapped by `io`. However, any bytes
+already consumed and not returned in `get_unflushed` should not be buffered in `io` itself.
+
+Mutating the returned buffer is allowed, and should not cause `io` to malfunction.
+After mutating the returned buffer and calling `flush`, values in the updated buffer
+will be flushed.
+
+This function has no default implementation and methods are optionally added to subtypes
+of `AbstractBufWriter` that can fullfil the above restrictions.
+
+# Examples
+```
+julia> io = IOBuffer(); writer = BufWriter(io);
+
+julia> isempty(get_unflushed(writer))
+true
+
+julia> write(writer, "abc"); unflushed = get_unflushed(writer);
+
+julia> println(unflushed)
+UInt8[0x61, 0x62, 0x63]
+
+julia> unflushed[2] = UInt8('x')
+0x78
+
+julia> flush(writer); take!(io) |> println
+UInt8[0x61, 0x78, 0x63]
+
+julia> get_unflushed(writer) |> println
+UInt8[]
+```
+"""
 function get_unflushed(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[1:(x.consumed)]
 end
@@ -172,6 +211,35 @@ function shallow_flush(x::BufWriter)::Int
     return to_flush
 end
 
+"""
+    grow_buffer(io::AbstractBufWriter)::Int
+
+Increase the amount of bytes in the writeable buffer of `io` if possible, returning
+the number of bytes added. After calling `grow_buffer` and getting `n`,
+the buffer obtained by `get_buffer` should have `n` more bytes.
+
+The buffer is usually grown by flushing the buffer, expanding or reallocating the buffer.
+If none of these can grow the buffer, return zero.
+
+!!! note
+    Idiomatically, users should not call `grow_buffer` when the buffer is not empty,
+    because doing so forces growing the buffer instead of letting `io` choose an optimal
+    buffer size. Calling `grow_buffer` with a nonempty buffer is only appropriate if, for
+    algorithmic reasons you need `io` buffer to be able to hold some minimum amount of data
+    before flushing.
+
+# Examples
+```jldoctest
+julia> v = VecWriter(undef, 0); get_buffer(v) |> show
+UInt8[]
+
+julia> n_grown = grow_buffer(v); n_grown > 0
+true
+
+julia> length(get_buffer(v)) == n_grown
+true
+```
+"""
 function grow_buffer(x::BufWriter)
     flushed = @inline shallow_flush(x)
     return iszero(flushed) ? grow_buffer_slowpath(x) : flushed
