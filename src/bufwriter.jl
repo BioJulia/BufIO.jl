@@ -24,7 +24,7 @@ julia> flush(wtr); seekstart(io); String(read(io))
 "Hello!4\\x12xV"
 
 julia> get_unflushed(wtr)
-0-element MemoryViews.MutableMemoryView{UInt8}
+0-element MutableMemoryView{UInt8}
 ```
 """
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
@@ -82,6 +82,36 @@ function BufWriter(f, io::IO, buffer_size::Int = 4096)
     end
 end
 
+"""
+    get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}
+
+Get the available mutable buffer of `io` that can be written to.
+
+Calling this function should never do actual system I/O, and in particular
+should not attempt to flush data from the buffer or grow the buffer.
+To increase the size of the buffer, call [`grow_buffer`](@ref).
+
+# Examples
+```jldoctest
+julia> writer = BufWriter(IOBuffer(), 5);
+
+julia> buffer = get_buffer(writer);
+
+julia> (typeof(buffer), length(buffer))
+(MutableMemoryView{UInt8}, 5)
+
+julia> write(writer, "abcde")
+5
+
+julia> get_buffer(writer) |> println
+UInt8[]
+
+julia> flush(writer)
+
+julia> buffer = get_buffer(writer); length(buffer)
+5
+```
+"""
 function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
     return @inbounds MemoryView(x.buffer)[(x.consumed + 1):end]
 end

@@ -95,8 +95,8 @@ module IOErrorKinds
         NotADirectory,
         IsADirectory,
         DirectoryNotEmpty,
-        InvalidFileName
-    ClosedIO
+        InvalidFileName,
+        ClosedIO
 end
 
 using .IOErrorKinds: IOErrorKind
@@ -129,6 +129,36 @@ struct IOError <: Exception
     kind::IOErrorKind
 end
 
+function Base.showerror(io::IO, err::IOError)
+    kind = err.kind
+    str = if kind === IOErrorKinds.ConsumeBufferError
+        "Called `consume` with a negative amount, or larger than available buffer size"
+    elseif kind === IOErrorKinds.BadSeek
+        "Invalid seek, possible out of range"
+    elseif kind === IOErrorKinds.EOF
+        "End of file"
+    elseif kind === IOErrorKinds.BufferTooShort
+        "Buffer of reader or writer is too short for operation"
+    elseif kind === IOErrorKinds.PermissionDenied
+        "Permission denied"
+    elseif kind === IOErrorKinds.NotFound
+        "Resource, perhaps a file, not found"
+    elseif kind === IOErrorKinds.BrokenPipe
+        "Write to broken UNIX pipe, possibly writing to closed stdout"
+    elseif kind === IOErrorKinds.AlreadyExists
+        "Unique resource already exists, possibly a filesystem path"
+    elseif kind === IOErrorKinds.NotADirectory
+        "Not a directory"
+    elseif kind === IOErrorKinds.DirectoryNotEmpty
+        "Directory not empty"
+    elseif kind === IOErrorKinds.InvalidFileName
+        "Invalid file name"
+    elseif kind === IOErrorKinds.ClosedIO
+        "Unsupported operation on closed IO"
+    end
+    return print(io, str)
+end
+
 # Internal type!
 struct HitBufferLimit end
 
@@ -148,12 +178,16 @@ end
 """
     abstract type AbstractBufReader end
 
-An `AbstractBufReader` is an IO type that exposes a buffer to the user, thereby
-allowing efficient IO.
+An `AbstractBufReader` is a readable IO type that exposes a buffer of
+readable bytes to the user.
 
 !!! warning
     By default, subtypes of `AbstractBufReader` are **not threadsafe**, so concurrent usage
     should protect the instance behind a lock.
+
+# Extended help
+Subtypes of this type should not have a zero-sized buffer which cannot expand when calling
+`fill_buffer`.
 
 Subtypes `T` of this type should implement at least:
 
@@ -162,15 +196,17 @@ Subtypes `T` of this type should implement at least:
 * `consume(io::T, n::Int)`
 * `Base.close(io::T)`
 
-# Extended help
 Subtypes may optionally define the following methods. See their docstring for `BufReader` / `BufWriter`
 for details of the implementation:
 
-* `Base.seek`
-* `Base.filesize`
+* `Base.seek(io::T, ::Int)`
+* `Base.filesize(io::T)`
+* `Base.position(io::T)`
+* `resize_buffer(io::T, ::Int)`
 
-Subtypes `T` of this type have implementations for many Base IO methods, but with more precisely
-specified semantics. See docstrings of the specific functions of interest.
+`AbstractBufReader`s have implementations for many Base IO methods, but with more precisely
+specified semantics than for `Base.IO`.
+See docstrings of the specific functions of interest.
 """
 abstract type AbstractBufReader end
 
@@ -186,6 +222,8 @@ For example, integers can usually be written to buffered writers without allocat
     By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage
     should protect the instance behind a lock.
 
+# Extended help
+
 Subtypes of this type should not have a zero-sized buffer which cannot expand when calling
 `grow_buffer`.
 
@@ -198,35 +236,16 @@ Subtypes `T` of this type should implement at least:
 * `Base.flush(io::T)`
 
 They may optionally implement
+* `Base.seek(io::T, ::Int)`
+* `Base.filesize(io::T)`
+* `Base.position(io::T)`
 * `get_unflushed(io::T)`
+* `shallow_flush(io::T)`
+* `resize_buffer(io::T, ::Int)`
 * `get_nonempty_buffer(io::T, ::Int)`
-
-# Extended help
-
-* Methods of `Base.close` should make sure that calling `close` on an already-closed
-  object has no visible effects.
-* `flush(x::T)` should be implemented, but may simply return `nothing` if there is no
-  underlying stream to flush to.
 """
 abstract type AbstractBufWriter end
 
-"""
-    get_buffer(io::AbstractBufReader)::ImmutableMemoryView{UInt8}
-
-Get the available bytes of `io`.
-
-Calling this function, even when the buffer is empty, should never do actual system I/O,
-and in particular should not attempt to fill the buffer.
-To fill the buffer, call [`fill_buffer`](@ref).
-
-    get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}
-
-Get the available mutable buffer of `io` that can be written to.
-
-Calling this function should never do actual system I/O, and in particular
-should not attempt to flush data from the buffer or grow the buffer.
-To increase the size of the buffer, call [`grow_buffer`](@ref).
-"""
 function get_buffer end
 
 """
@@ -249,6 +268,25 @@ This function should never return `nothing` if the buffer is empty.
     because doing so may force growing the buffer instead of letting `io` choose an optimal
     buffer size. Calling `fill_buffer` with a nonempty buffer is only appropriate if, for
     algorithmic reasons you need `io` itself to buffer some minimum amount of data.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcde");
+
+julia> fill_buffer(reader) # CursorReader can't fill its buffer
+0
+
+julia> reader = BufReader(IOBuffer("abcde"), 3);
+
+julia> length(get_buffer(reader)) # buffer of BufReader initially empty
+0
+
+julia> fill_buffer(reader)
+3
+
+julia> length(get_buffer(reader)) # now must be 0 + 3
+3
+```
 """
 function fill_buffer(::AbstractBufReader) end
 
@@ -268,6 +306,18 @@ If none of these can grow the buffer, return zero.
     buffer size. Calling `grow_buffer` with a nonempty buffer is only appropriate if, for
     algorithmic reasons you need `io` buffer to be able to hold some minimum amount of data
     before flushing.
+
+# Examples
+```jldoctest
+julia> v = VecWriter(undef, 0); get_buffer(v) |> show
+UInt8[]
+
+julia> n_grown = grow_buffer(v); n_grown > 0
+true
+
+julia> length(get_buffer(v)) == n_grown
+true
+```
 """
 function grow_buffer(::AbstractBufWriter) end
 
@@ -287,6 +337,28 @@ will be flushed.
 
 This function has no default implementation and methods are optionally added to subtypes
 of `AbstractBufWriter` that can fullfil the above restrictions.
+
+# Examples
+```
+julia> io = IOBuffer(); writer = BufWriter(io);
+
+julia> isempty(get_unflushed(writer))
+true
+
+julia> write(writer, "abc"); unflushed = get_unflushed(writer);
+
+julia> println(unflushed)
+UInt8[0x61, 0x62, 0x63]
+
+julia> unflushed[2] = UInt8('x')
+0x78
+
+julia> flush(writer); take!(io) |> println
+UInt8[0x61, 0x78, 0x63]
+
+julia> get_unflushed(writer) |> println
+UInt8[]
+```
 """
 function get_unflushed(::AbstractBufWriter) end
 
@@ -299,6 +371,20 @@ Consumed bytes will not be returned by future calls to `get_buffer`.
 If n is negative, or larger than the current buffer size,
 throw an `IOError` with `ConsumeBufferError` kind.
 This check is a boundscheck and may be elided with `@inbounds`.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdefghij");
+
+julia> get_buffer(reader) == b"abcdefghij"
+true
+
+julia> consume(reader, 8); get_buffer(reader) |> println
+UInt8[0x69, 0x6a]
+
+julia> consume(reader, 3) # 2 bytes remaining
+ERROR: Called `consume` with a negative amount, or larger than available buffer size
+```
 """
 function consume end
 
@@ -310,16 +396,29 @@ function consume end
 Get a buffer with at least one byte, if bytes are available.
 Otherwise, fill the buffer, and return the newly filled buffer.
 Returns `nothing` only if `x` is EOF.
+
+# Examples
+```jldoctest
+julia> reader = BufReader(IOBuffer("abc"));
+
+julia> get_buffer(reader) |> println # empty
+UInt8[]
+
+julia> get_nonempty_buffer(reader) |> println
+UInt8[0x61, 0x62, 0x63]
+
+julia> consume(reader, 3)
+
+julia> get_nonempty_buffer(reader) === nothing # EOF
+true
+```
 """
 function get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemoryView{UInt8}}
     buf = get_buffer(x)::ImmutableMemoryView{UInt8}
     isempty(buf) || return buf
-    # Per the API, fill_buffer is not allowed to return nothing when the buffer
-    # is empty, so calling something here is permitted.
     fill_buffer(x)
-    buf = get_buffer(x)
-    isempty(buf) && return nothing
-    return buf
+    buf = get_buffer(x)::ImmutableMemoryView{UInt8}
+    return isempty(buf) ? nothing : buf
 end
 
 """
@@ -332,6 +431,19 @@ or `x` is EOF.
 This function is defined generically for `AbstractBufReader`. New methods
 should strive to do at most one read call to the underlying IO, if `x`
 wraps such an `IO`.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcde");
+
+julia> v = zeros(UInt8, 8);
+
+julia> read_into!(reader, MemoryView(v))
+5
+
+julia> println(v)
+UInt8[0x61, 0x62, 0x63, 0x64, 0x65, 0x00, 0x00, 0x00]
+```
 """
 function read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
     isempty(dst) && return 0
@@ -347,6 +459,19 @@ end
 
 Read bytes into `dst` until either `dst` is filled or `io` is EOF, returning
 the number of bytes read.
+
+# Examples
+```jldoctest
+julia> reader = BufReader(IOBuffer("abcdefgh"), 3);
+
+julia> v = zeros(UInt8, 10);
+
+julia> read_all!(reader, MemoryView(v))
+8
+
+julia> String(v)
+"abcdefgh\\0\\0"
+```
 """
 function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
     n_total_read = 0
@@ -368,6 +493,22 @@ Like `skip`, but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes coul
 not be skipped.
 
 See also: [`Base.skip`](@ref)
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdefghij");
+
+julia> position(reader)
+0
+
+julia> skip_exact(reader, 3)
+
+julia> read(reader, 2) |> String
+"de"
+
+julia> skip_exact(reader, 6) # 5 bytes remaining
+ERROR: End of file
+```
 """
 function skip_exact(io::AbstractBufReader, n::Integer)
     n < 0 && throw(ArgumentError("Cannot skip negative amount"))

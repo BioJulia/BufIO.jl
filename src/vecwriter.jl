@@ -153,9 +153,13 @@ may be less efficient, if one operation has memory allocation patterns
 that is suboptimal for the other operation.
 
 Create with one of the following constructors:
-* VecWriter([vec::Vector{UInt8}])
-* VecWriter(undef, ::Int)
-* VecWriter(::ByteVector)
+* `VecWriter([vec::Vector{UInt8}])`
+* `VecWriter(undef, ::Int)`
+* `VecWriter(::ByteVector)`
+
+Note that when constructing from a `Vector{UInt8}`, the vector is invalidated
+and the `VecWriter` and its wrapped `ByteVector` take shared control of
+the underlying memory.
 
 ```jldoctest
 julia> vw = VecWriter();
