@@ -1,6 +1,11 @@
 using Documenter, BufferIO
 
-DocMeta.setdocmeta!(BufferIO, :DocTestSetup, :(using BufferIO); recursive = true)
+meta = quote
+    using MemoryViews
+    using BufferIO
+end
+
+DocMeta.setdocmeta!(BufferIO, :DocTestSetup, meta; recursive = true)
 
 makedocs(;
     sitename = "BufferIO.jl",

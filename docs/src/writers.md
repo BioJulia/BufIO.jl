@@ -13,7 +13,7 @@ Similar to `AbstractBufReader`, the core interface of `AbstractBufWriter` consis
 * `grow_buffer(io)` request to expand the buffer returned by future calls to `get_buffer`. This may happen by flushing data in the buffer or by reallocating a larger buffer
 * `consume(io, n::Int)` signals that the first `n` bytes in the buffer are written to `io`, and will therefore not be returned from future calls to `get_buffer`.
 
-## Example: Writing `v::Vector{UInt8}` to an `AbstractBufWriter`
+### Example: Writing `v::Vector{UInt8}` to an `AbstractBufWriter`
 The method `write(::AbstractBufWriter, v::Vector{UInt8})` is already implemented, but it's illustrative to see how this be implemented in terms of the core primitives above.
 
 First, let's define it in terms of `ImmutableMemoryView`, and then forward the `Vector` method to the memory one.

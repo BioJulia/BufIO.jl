@@ -41,7 +41,7 @@ function read_exact(io::AbstractBufReader, n::Int)
             buffer = get_buffer(io)
         end
         mn = min(remaining, length(buffer))
-        append!(result, buffer[mn])
+        append!(result, buffer[1:mn])
         # Signal to `io` that the first `mn` bytes have already been read,
         # so these should not be output in future calls to `get_buffer`
         consume(io, mn)

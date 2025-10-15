@@ -10,6 +10,10 @@ Create an efficient iterator of lines of `x`.
 The returned views are `ImmutableMemoryView{UInt8}` views into `x`'s buffer, 
 and are invalidated when `x` is mutated or the line iterator is advanced.
 
+When iterating the iterator, `x` is not advanced on the first call to `iterate`.
+Subsequent calls will advance `x` to get the next line, thus invalidating the
+previous line view.
+
 A line is defined as all data up to and
 including `\\n` (0x0a) or `\\r\\n` (0x0d 0x0a), or the remainder of the data in `io` if
 no `\\n` byte was found.
@@ -23,6 +27,25 @@ If `x` had a limited buffer size, and an entire line cannot be kept in the buffe
 `ArgumentError` is thrown.
 
 The resulting iterator will NOT close `x` when done, this must be handled by the caller.
+
+# Examples
+```jldoctest
+julia> lines = line_views(CursorReader("abc\\r\\ndef\\n\\r\\ngh"));
+
+julia> (line, state) = iterate(lines); String(line)
+"abc"
+
+julia> println(first(lines)) # not advanced until 2-arg iterate call
+UInt8[0x61, 0x62, 0x63]
+
+julia> iterate(lines, state) |> first |> String # advance to "def"
+"def"
+
+julia> line = nothing # `line` is now invalidated
+
+julia> sum(length, lines) # "def" + "" + "gh"
+5
+```
 """
 function line_views(x::AbstractBufReader; chomp::Bool = true)
     return LineViewIterator{typeof(x)}(x, chomp)

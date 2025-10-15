@@ -1,4 +1,12 @@
 ## Example use of BufferIO
+
+### Examples in the wild
+At the time of writing, BufferIO is a brand-new package with limited usage in the Julia ecosystem.
+
+So far, the users of BufferIO are:
+
+* [BGZFLib.jl](https://github.com/BioJulia/BGZFLib.jl)
+
 ### Reader example
 For bulk I/O operations, there is often not much practical difference between `Base.IO` and the BufferIO interfaces - except somewhat more precise semantics of the latter.
 

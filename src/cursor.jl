@@ -36,13 +36,36 @@ fill_buffer(::CursorReader) = 0
 get_buffer(x::CursorReader) = @inbounds x.data[(x.offset + 1):end]
 
 """
-   Base.position(io::AbstractBufReader)::Int
+    Base.position(io::AbstractBufReader)::Int
 
 Get the zero-based stream position.
 
 If the stream position is `p` (zero-based), then the next byte read will be byte
 number `p + 1` (one-based).
 The value of `position` must be in `0:filesize(io)`, if `filesize` is defined.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdefghij");
+
+julia> position(reader) # zero-indexed
+0
+
+julia> read(reader, 3) |> String
+"abc"
+
+julia> position(reader)
+3
+
+julia> read(reader, 2) |> String
+"de"
+
+julia> position(reader)
+5
+
+julia> seekstart(reader); position(reader)
+0
+```
 """
 Base.position(x::CursorReader) = x.offset
 

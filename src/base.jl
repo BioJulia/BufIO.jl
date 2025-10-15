@@ -46,14 +46,18 @@ end
 
 Copy `nbytes` from `io` into `ref`, returning the number of bytes copied.
 If `io` reached end of file, stop at EOF.
-`ref` is converted to a pointer using `Base.unsafe_convert(Ptr{UInt8}, Base.cconvert(Ptr, ref))`.
+`ref` is converted to a pointer using `cref = Base.cconvert(Ptr, ref)`, then
+`Base.unsafe_convert(Ptr{UInt8}, cref)`.
 
-Safety: The user must ensure that the resulting pointer is valid,
-and points to at least `nbytes` of writeable memory.
+Safety: The user must ensure that
+* The resulting pointer is valid, and points to at least `nbytes` of writeable memory.
+* `GC.@preserve`ing `cref` pins `ref` in memory, i.e. the pointer will not become
+  invalid during the `GC.@preserve` block.
 """
 function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
-    GC.@preserve ref begin
-        ptr = Base.unsafe_convert(Ptr{UInt8}, Base.cconvert(Ptr, ref))::Ptr{UInt8}
+    cref = Base.cconvert(Ptr, ref)
+    GC.@preserve cref begin
+        ptr = Base.unsafe_convert(Ptr{UInt8}, cref)::Ptr{UInt8}
         result = unsafe_read(x, ptr, n)
     end
     return result
@@ -94,11 +98,14 @@ Get the next `UInt8` in `io`, without advancing `io`, or throw an `IOError`
 containing `IOErrorKinds.EOF` if `io` is EOF.
 """
 function Base.peek(x::AbstractBufReader, ::Type{UInt8})
-    buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-    if buffer === nothing
-        throw(IOError(IOErrorKinds.EOF))
+    # Using `get_nonempty_buffer` is slightly less efficient here
+    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+    if isempty(buffer)
+        fill_buffer(x)
+        buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+        isempty(buffer) && throw(IOError(IOErrorKinds.EOF))
     end
-    return first(buffer)
+    return @inbounds buffer[1]
 end
 
 """
@@ -291,6 +298,26 @@ use `seek(io, position(io) + n)`.
 Throws an `ArgumentError` if `n < 0`.
 
 See also: [`skip_exact`](@ref)
+
+# Examples
+```
+julia> reader = CursorReader("abcdefghij");
+
+julia> skip(reader, 5)
+5
+
+julia> read(reader, 3) |> String
+"fgh"
+
+julia> skip(reader, 10) # 2 bytes remaining
+2
+
+julia> eof(reader)
+true
+
+julia> skip(reader, 100)
+0
+```
 """
 function Base.skip(io::AbstractBufReader, n::Integer)
     n < 0 && throw(ArgumentError("Cannot skip negative amount"))

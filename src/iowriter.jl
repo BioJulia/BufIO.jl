@@ -21,6 +21,7 @@ julia> f(IOWriter(io))
 
 julia> String(io.vec)
 "hello"
+```
 """
 struct IOWriter{T <: AbstractBufWriter} <: IO
     x::T
