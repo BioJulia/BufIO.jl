@@ -6,28 +6,26 @@ end
 ```
 
 # BufferIO.jl
-BufferIO provides new and improved I/O interfaces for Julia inspired by Rust, and designed around exposing buffers to users in order to explicitly copy bytes to and from them. Compared to the `Base.IO` interface, the new interfaces in this package are:
+BufferIO provides new and improved I/O interfaces for Julia [inspired by Rust](https://doc.rust-lang.org/std/io/trait.BufRead.html), and designed around exposing buffers to users in order to explicitly copy bytes to and from them. Compared to the `Base.IO` interface, the new interfaces in this package are:
 
-* Lower level
-* Faster
-* Easier to reason about
-* Better specified, with more well-defined semantics
+* Lower level and faster
+* Better specified, with more well-defined semantics and therefore easier to reason about
 * Free from slow fallback methods that silently trash your performance
 
 Beside the new interfaces, BufferIO also provides a small set of basic types to make use of the new interface, and/or allow easy interoperation between `Base.IO` types and the new buffered interfaces.
 
 ## Overview of content:
-* `AbstractBufReader`: A reader type that exposes its internal data as an immutable memory view of bytes
-* `AbstractBufWriter`: A writer type that allows writing to it by copying data to a mutable memory view of its internal buffer
-* `BufReader <: AbstractBufReader`: A type that wraps a `Base.IO` to provide the `AbstractBufReader` interface
-* `BufWriter <: AbstractBufWriter`: A type that wraps a `Base.IO` to provide the `AbstractBufWriter` interface
-* `CursorReader <: AbstractBufReader`: Wrap any contiguous, memory of bytes into a stateful reader
-* `IOReader <: Base.IO`: A type that wraps an `AbstractBufReader` and provides the `Base.IO` interface
-* `IOWriter <: Base.IO`: A type that wraps an `AbstractBufWriter` and provides the `Base.IO` interface
-* `VecWriter <: AbstractBufWriter`: A faster and simpler alternative to IOBuffer usable e.g. to build strings.
+* [`AbstractBufReader`](@ref): A reader type that exposes its internal data as an immutable memory view of bytes
+* [`AbstractBufWriter`](@ref): A writer type that allows writing to it by copying data to a mutable memory view of its internal buffer
+* [`BufReader`](@ref): An `AbstractBufReader` that wraps a `Base.IO`
+* [`BufWriter`](@ref): An `AbstractBufWriter` type that wraps a `Base.IO`
+* [`CursorReader`](@ref): An `AbstractBufReader` that wraps any contiguous, memory of bytes into a stateful reader
+* [`IOReader`](@ref): A `Base.IO` type that wraps an `AbstractBufReader`
+* [`IOWriter`](@ref): A `Base.IO` type that wraps an `AbstractBufWriter`
+* [`VecWriter`](@ref): An `AbstractBufWriter` type that is a faster and simpler alternative to `IOBuffer` usable e.g. to build strings.
 
 ## Examples
-See usage examples in the sidebar to the left
+See the page with [Example use of BufferIO](@ref) in the sidebar to the left, or take a look at the docstrings of functions.
 
 ## Design notes and limitations
 #### Requires Julia 1.11

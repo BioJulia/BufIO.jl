@@ -223,6 +223,24 @@ chunks.
     Use of this method may cause excessive buffering without flushing,
     which is less memory efficient than calling the one-argument method
     and flushing in a loop.
+
+# Examples
+```jldoctest
+julia> function write_int_le(writer::AbstractBufWriter, int::Int64)
+           buf = get_nonempty_buffer(writer, sizeof(Int64))::Union{Nothing, MutableMemoryView{UInt8}}
+           isnothing(buf) && throw(IOError(IOErrorKinds.BufferTooShort))
+           length(buf) < sizeof(Int64) && error("Bad implementation of get_nonempty_buffer")
+           GC.@preserve buf unsafe_store!(Ptr{Int64}(pointer(buf)), htol(int))
+           @inbounds consume(writer, sizeof(Int64))
+           return sizeof(Int64)
+       end;
+
+julia> v = VecWriter(); write_int_le(v, Int64(515))
+8
+
+julia> String(v.vec)
+"\\x03\\x02\\0\\0\\0\\0\\0\\0"
+```
 """
 function get_nonempty_buffer(x::VecWriter, min_size::Int)
     ensure_unused_space!(x.vec, max(min_size, 1) % UInt)

@@ -298,6 +298,26 @@ use `seek(io, position(io) + n)`.
 Throws an `ArgumentError` if `n < 0`.
 
 See also: [`skip_exact`](@ref)
+
+# Examples
+```
+julia> reader = CursorReader("abcdefghij");
+
+julia> skip(reader, 5)
+5
+
+julia> read(reader, 3) |> String
+"fgh"
+
+julia> skip(reader, 10) # 2 bytes remaining
+2
+
+julia> eof(reader)
+true
+
+julia> skip(reader, 100)
+0
+```
 """
 function Base.skip(io::AbstractBufReader, n::Integer)
     n < 0 && throw(ArgumentError("Cannot skip negative amount"))

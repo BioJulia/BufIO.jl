@@ -375,7 +375,7 @@ Types implementing `filesize` should also implement `seek` and `position`.
 Base.filesize(io::BufWriter) = filesize(io.io)
 
 """
-   Base.position(io::AbstractBufWriter)::Int
+    Base.position(io::AbstractBufWriter)::Int
 
 Get the zero-based stream position.
 
