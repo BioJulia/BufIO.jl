@@ -150,7 +150,7 @@ This function has no default implementation and methods are optionally added to 
 of `AbstractBufWriter` that can fullfil the above restrictions.
 
 # Examples
-```
+```jldoctest
 julia> io = IOBuffer(); writer = BufWriter(io);
 
 julia> isempty(get_unflushed(writer))
