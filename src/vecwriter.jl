@@ -34,7 +34,7 @@ end
     # We defensively truncate here and reallocate the memory.
     # Currently this is inefficient, but I want to be able to do zero-copy string creation
     # in the future, and that will only be doable without breakage by reallocating the memory.
-    v.len = 0
+    empty!(v)
     v.ref = memoryref(Memory{UInt8}()) # note: a zero-sized memory usually does not allocate
     return s
 end
@@ -50,6 +50,24 @@ end
 
 Base.size(x::ByteVector) = (x.len,)
 Base.length(x::ByteVector) = x.len
+
+Base.empty!(x::ByteVector) = (x.len = 0; x)
+
+function Base.resize!(x::ByteVector, n::Integer)
+    n = Int(n)::Int
+    if (n % UInt) > UInt(2)^48
+        throw(ArgumentError("New length must be in 0:2^48"))
+    end
+    if n > length(get_memory(x))
+        memsize = overallocation_size(n % UInt)
+        newmem = Memory{UInt8}(undef, memsize)
+        unsafe_copyto!(MemoryView(newmem), MemoryView(x))
+        x.ref = memoryref(newmem)
+        x.len = n
+    end
+    x.len = n
+    return x
+end
 
 function Base.getindex(v::ByteVector, i::Integer)
     i = Int(i)::Int
@@ -157,9 +175,13 @@ Create with one of the following constructors:
 * `VecWriter(undef, ::Int)`
 * `VecWriter(::ByteVector)`
 
-Note that when constructing from a `Vector{UInt8}`, the vector is invalidated
-and the `VecWriter` and its wrapped `ByteVector` take shared control of
-the underlying memory.
+Note that, currently, when constructing from a `Vector{UInt8}`,
+the vector is invalidated and the `VecWriter` and its wrapped `ByteVector`
+take shared control of the underlying memory.
+This restriction may be lifted in the future.
+
+A VecWriter has no notion of `filesize`, and cannot be `seek`ed. Instead, resize
+the underlying vector `io.vec`.
 
 ```jldoctest
 julia> vw = VecWriter();
@@ -184,9 +206,7 @@ const DEFAULT_VECWIRTER_SIZE = 32
 VecWriter() = VecWriter(undef, DEFAULT_VECWIRTER_SIZE)
 
 function VecWriter(::UndefInitializer, len::Int)
-    vec = ByteVector(undef, len)
-    vec.len = 0
-    return VecWriter(vec)
+    return VecWriter(empty!(ByteVector(undef, len)))
 end
 
 function VecWriter(v::Vector{UInt8})

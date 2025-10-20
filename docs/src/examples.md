@@ -17,7 +17,7 @@ With a `Base.IO` type, your choices are:
 2. Implement your own buffering layer, and load data into the buffer, then read the number from the buffer.
 
 The latter is essentially an ad-hoc implementation of a BufferIO-like interface.
-This is what packages like FASTX.jl, XAM.jl and other parsing packages do. 
+This is what packages like FASTX.jl, XAM.jl and other parsing packages do.
 
 Below is an implementation of how to do it using BufferIO.
 
