@@ -111,8 +111,9 @@ function Base.iterate(x::EachLine, _::Nothing = nothing)
     it = iterate(x.x)
     isnothing(it) && return nothing
     (view, state) = it
+    str = String(view)
     consume(x.x.reader, state)
-    return (String(view), nothing)
+    return (str, nothing)
 end
 
 """

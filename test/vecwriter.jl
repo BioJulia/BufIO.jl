@@ -1,3 +1,26 @@
+@testset "ByteVector specifics" begin
+    v = ByteVector(undef, 10)
+    @test length(v) == 10
+    push!(v, 0x0a)
+    @test length(v) == 11
+    @test v[11] == 0x0a
+
+    copy!(v, b"abcdefghijk")
+    @test v == b"abcdefghijk"
+    resize!(v, 6)
+    @test v == b"abcdef"
+    vmem = BufferIO.get_memory(v)
+    resize!(v, 11)
+    @test length(v) == 11
+    @test BufferIO.get_memory(v) === vmem
+    resize!(v, 100)
+    @test length(v) == 100
+    @test BufferIO.get_memory(v) !== vmem
+
+    @test_throws ArgumentError resize!(v, -1)
+    @test_throws ArgumentError resize!(v, 2^50)
+end
+
 @testset "Construction" begin
     vw = VecWriter()
     @test vw isa VecWriter
